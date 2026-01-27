@@ -1,0 +1,58 @@
+{
+  "$schema": "https://opencode.ai/schemas/config.json",
+  "provider": "minimax",
+  "model": "MiniMax-M2.1",
+  "agents": {
+    "ideator": {
+      "path": ".opencode/agent/ideator.md",
+      "description": "Finds innovative project ideas from various sources"
+    },
+    "planner": {
+      "path": ".opencode/agent/planner.md",
+      "description": "Creates detailed implementation plans"
+    },
+    "developer": {
+      "path": ".opencode/agent/developer.md",
+      "description": "Implements code based on plans"
+    },
+    "tester": {
+      "path": ".opencode/agent/tester.md",
+      "description": "Tests and validates implementations"
+    },
+    "uploader": {
+      "path": ".opencode/agent/uploader.md",
+      "description": "Uploads projects to GitHub"
+    },
+    "evangelist": {
+      "path": ".opencode/agent/evangelist.md",
+      "description": "Promotes projects on X/Twitter"
+    }
+  },
+  "mcpServers": {
+    "search": {
+      "command": "python",
+      "args": ["-m", "mcp_servers.search_mcp"],
+      "description": "Search arXiv, Reddit, Hacker News, Product Hunt"
+    },
+    "github": {
+      "command": "python",
+      "args": ["-m", "mcp_servers.github_mcp"],
+      "description": "GitHub repository management"
+    },
+    "x_api": {
+      "command": "python",
+      "args": ["-m", "mcp_servers.x_mcp"],
+      "description": "X/Twitter API for posting and searching"
+    },
+    "database": {
+      "command": "python",
+      "args": ["-m", "mcp_servers.database_mcp"],
+      "description": "Local database for ideas and projects"
+    }
+  },
+  "settings": {
+    "temperature": 0.7,
+    "maxTokens": 8192,
+    "timeout": 300
+  }
+}
