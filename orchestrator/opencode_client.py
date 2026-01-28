@@ -3,6 +3,7 @@ OpenCode SDK Client Wrapper for 7000%AUTO
 Uses OpenCode SDK (opencode-ai) for AI agent interactions.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -198,13 +199,14 @@ class OpenCodeClient:
                 f"Failed to create session (is OpenCode server running at {server_url}?): {e}"
             )
     
-    async def send_message(self, session_id: str, message: str) -> Dict[str, Any]:
+    async def send_message(self, session_id: str, message: str, timeout_seconds: int = 120) -> Dict[str, Any]:
         """
         Send a message and get response from OpenCode.
         
         Args:
             session_id: Session ID from create_session
             message: User message to send
+            timeout_seconds: Maximum time to wait for agent completion (default 120s)
             
         Returns:
             Dict with "content" (raw response) and "parsed" (extracted JSON)
@@ -250,8 +252,13 @@ class OpenCodeClient:
                 logger.error(f"OpenCode response error: {error_msg}")
                 raise OpenCodeError(f"Agent error: {error_msg}")
             
-            # Extract content from response
-            content = self._extract_response_content(response)
+            # session.chat() returns immediately - agent may still be running
+            # Check if response is complete by looking at time.completed
+            # If not complete, poll until agent finishes
+            await self._wait_for_completion(client, session_id, response, timeout_seconds)
+            
+            # Now fetch the actual message content
+            content = await self._fetch_message_content(client, session_id)
             
             logger.info(f"Received response for session {session_id} ({len(content)} chars)")
             
@@ -268,6 +275,170 @@ class OpenCodeClient:
             raise OpenCodeError(
                 f"Failed to send message (is OpenCode server running at {server_url}?): {e}"
             )
+    
+    async def _wait_for_completion(
+        self, 
+        client: Any, 
+        session_id: str, 
+        initial_response: Any,
+        timeout_seconds: int
+    ) -> None:
+        """
+        Wait for agent to complete processing.
+        
+        The session.chat() method returns immediately with an AssistantMessage.
+        If time.completed is None, the agent is still running.
+        We need to poll session.messages() until the specific message is complete.
+        
+        Args:
+            client: OpenCode client instance
+            session_id: Session ID
+            initial_response: Initial AssistantMessage from session.chat()
+            timeout_seconds: Maximum time to wait for completion
+        """
+        # Get the message ID to track the specific message
+        message_id = getattr(initial_response, 'id', None)
+        
+        # Check if initial response is already complete
+        time_info = getattr(initial_response, 'time', None)
+        if time_info:
+            completed = getattr(time_info, 'completed', None)
+            if completed is not None:
+                logger.debug(f"Session {session_id}: Agent already completed (message: {message_id})")
+                return
+        
+        # Poll for completion
+        poll_interval = 1.0  # seconds
+        max_polls = int(timeout_seconds / poll_interval)
+        
+        logger.info(f"Session {session_id}: Agent still running (message: {message_id}), polling for completion...")
+        
+        for poll_count in range(max_polls):
+            await asyncio.sleep(poll_interval)
+            
+            try:
+                # Fetch messages to check completion status
+                messages_response = await client.session.messages(session_id)
+                
+                if not messages_response:
+                    continue
+                
+                # Find the specific message by ID, or fall back to last assistant message
+                target_message = None
+                
+                for msg in reversed(messages_response):
+                    info = getattr(msg, 'info', None)
+                    if not info:
+                        continue
+                    
+                    # Match by message ID if available
+                    if message_id:
+                        msg_id = getattr(info, 'id', None)
+                        if msg_id == message_id:
+                            target_message = msg
+                            break
+                    else:
+                        # Fallback: match last assistant message
+                        role = getattr(info, 'role', None)
+                        if role == 'assistant':
+                            target_message = msg
+                            break
+                
+                if target_message:
+                    info = getattr(target_message, 'info', None)
+                    if info:
+                        # Check time.completed on the message info
+                        time_info = getattr(info, 'time', None)
+                        if time_info:
+                            completed = getattr(time_info, 'completed', None)
+                            if completed is not None:
+                                logger.info(f"Session {session_id}: Agent completed after {poll_count + 1}s (message: {message_id})")
+                                return
+                
+                # Log progress every 10 polls
+                if (poll_count + 1) % 10 == 0:
+                    logger.info(f"Session {session_id}: Still waiting... ({poll_count + 1}s elapsed)")
+                    
+            except Exception as e:
+                logger.warning(f"Session {session_id}: Error polling for completion: {e}")
+                # Continue polling despite errors
+        
+        # Timeout reached
+        logger.warning(f"Session {session_id}: Timeout after {timeout_seconds}s waiting for agent completion")
+        raise OpenCodeError(f"Agent timed out after {timeout_seconds} seconds")
+    
+    async def _fetch_message_content(self, client: Any, session_id: str) -> str:
+        """
+        Fetch actual message content from session messages.
+        
+        The session.chat() method returns AssistantMessage which only contains metadata.
+        To get actual text content, we need to call session.messages() and extract
+        TextPart content from the last assistant message.
+        
+        Args:
+            client: OpenCode client instance
+            session_id: Session ID
+            
+        Returns:
+            Extracted text content from the last assistant message
+        """
+        try:
+            # Fetch all messages for the session
+            messages_response = await client.session.messages(session_id)
+            
+            if not messages_response:
+                logger.warning(f"No messages found for session {session_id}")
+                return ""
+            
+            # Find the last assistant message (not user message)
+            # messages_response is a list of SessionMessagesResponseItem
+            # Each item has 'info' (Message with role) and 'parts' (List[Part])
+            assistant_message = None
+            for msg in reversed(messages_response):
+                info = getattr(msg, 'info', None)
+                if info:
+                    role = getattr(info, 'role', None)
+                    if role == 'assistant':
+                        assistant_message = msg
+                        break
+            
+            if not assistant_message:
+                logger.warning(f"No assistant message found for session {session_id}")
+                return ""
+            
+            # Extract text from parts
+            texts = []
+            parts = getattr(assistant_message, 'parts', None) or []
+            
+            for part in parts:
+                # Check if it's a TextPart (type == 'text')
+                part_type = getattr(part, 'type', None)
+                if part_type == 'text':
+                    text = getattr(part, 'text', '')
+                    if text:
+                        texts.append(text)
+            
+            if texts:
+                return '\n'.join(texts)
+            
+            # Fallback: try to extract from dict representation
+            if hasattr(assistant_message, 'model_dump'):
+                dump = assistant_message.model_dump()
+                parts_data = dump.get('parts', [])
+                fallback_texts = []
+                for part_data in parts_data:
+                    if isinstance(part_data, dict) and part_data.get('type') == 'text':
+                        text = part_data.get('text', '')
+                        if text:
+                            fallback_texts.append(text)
+                if fallback_texts:
+                    return '\n'.join(fallback_texts)
+            
+            return ""
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch message content: {e}")
+            return ""
     
     def _extract_response_content(self, response: Any) -> str:
         """
@@ -321,11 +492,13 @@ class OpenCodeClient:
             logger.debug("Falling back to model_dump for content extraction")
             dump = response.model_dump()
             # Try to extract text from the dumped structure
-            if 'path' in dump and 'parts' in dump['path']:
+            # Add null check for dump['path'] to prevent NoneType error
+            if 'path' in dump and dump['path'] is not None and 'parts' in dump['path']:
                 parts = dump['path']['parts']
-                texts = [p.get('text', '') for p in parts if p.get('type') == 'text']
-                if texts:
-                    return '\n'.join(texts)
+                if parts:
+                    texts = [p.get('text', '') for p in parts if p.get('type') == 'text']
+                    if texts:
+                        return '\n'.join(texts)
             return json.dumps(dump, indent=2)
         
         logger.warning("Could not extract structured content, using str()")
