@@ -38,10 +38,24 @@ def _load_opencode_config() -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to load opencode.json: {e}")
     
-    # Default configuration
+    # Default configuration with proper provider object format
     _OPENCODE_CONFIG = {
-        "provider": "minimax",
-        "model": "MiniMax-M2.1"
+        "provider": {
+            "minimax": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "MiniMax",
+                "options": {
+                    "baseURL": "https://api.minimax.chat/v1",
+                    "apiKey": "{env:MINIMAX_API_KEY}"
+                },
+                "models": {
+                    "MiniMax-M2.1": {
+                        "name": "MiniMax M2.1"
+                    }
+                }
+            }
+        },
+        "model": "minimax/MiniMax-M2.1"
     }
     return _OPENCODE_CONFIG
 
@@ -102,8 +116,20 @@ class OpenCodeClient:
         
         # Load configuration from opencode.json
         config = _load_opencode_config()
-        self.provider_id = config.get("provider", "minimax")
-        self.model_id = config.get("model", "MiniMax-M2.1")
+        
+        # Extract provider_id and model_id from config
+        # model format is "provider/model" (e.g., "minimax/MiniMax-M2.1")
+        model_str = config.get("model", "minimax/MiniMax-M2.1")
+        if "/" in model_str:
+            self.provider_id, self.model_id = model_str.split("/", 1)
+        else:
+            # Fallback: get first provider from provider object, or default to minimax
+            provider_config = config.get("provider", {})
+            if isinstance(provider_config, dict) and provider_config:
+                self.provider_id = next(iter(provider_config.keys()))
+            else:
+                self.provider_id = "minimax"
+            self.model_id = model_str
     
     async def _get_client(self):
         """Get or create AsyncOpencode client"""
