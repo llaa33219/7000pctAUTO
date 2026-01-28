@@ -21,7 +21,7 @@ from sqlalchemy import select, func, desc
 # Import from project modules (not main to avoid circular imports)
 from config import settings
 from database import (
-    async_session_factory,
+    get_db,
     Project,
     ProjectStatus,
     AgentLog,
@@ -205,7 +205,7 @@ async def health_check():
     """Health check endpoint."""
     db_status = "healthy"
     try:
-        async with async_session_factory() as session:
+        async with get_db() as session:
             await session.execute(select(func.count()).select_from(Project))
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
@@ -227,7 +227,7 @@ async def get_system_status():
     """Get current system status including active project and stats."""
     orchestrator = get_orchestrator()
     
-    async with async_session_factory() as session:
+    async with get_db() as session:
         # Get active project (in progress)
         active_statuses = [
             ProjectStatus.IDEATION.value,
@@ -302,7 +302,7 @@ async def list_projects(
     status: Optional[str] = None
 ):
     """List all projects with pagination."""
-    async with async_session_factory() as session:
+    async with get_db() as session:
         query = select(Project)
         count_query = select(func.count()).select_from(Project)
         
@@ -346,7 +346,7 @@ async def list_projects(
 @dashboard_app.get("/api/projects/{project_id}")
 async def get_project(project_id: int):
     """Get detailed information for a single project."""
-    async with async_session_factory() as session:
+    async with get_db() as session:
         result = await session.execute(
             select(Project).where(Project.id == project_id)
         )
@@ -396,7 +396,7 @@ async def list_ideas(
     """List all generated ideas."""
     from database import Idea
     
-    async with async_session_factory() as session:
+    async with get_db() as session:
         query = select(Idea)
         count_query = select(func.count()).select_from(Idea)
         
@@ -444,7 +444,7 @@ async def stream_logs():
             try:
                 orchestrator = get_orchestrator()
                 
-                async with async_session_factory() as session:
+                async with get_db() as session:
                     # Get new logs since last check
                     query = select(AgentLog).order_by(desc(AgentLog.created_at)).limit(10)
                     
