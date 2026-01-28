@@ -19,6 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install OpenCode CLI to a shared location accessible by all users
+RUN mkdir -p /usr/local/opencode && \
+    curl -fsSL https://opencode.ai/install.sh | OPENCODE_INSTALL_DIR=/usr/local/opencode bash || true && \
+    chmod -R 755 /usr/local/opencode || true
+ENV PATH="/usr/local/opencode/bin:${PATH}"
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 

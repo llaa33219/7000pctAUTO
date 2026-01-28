@@ -558,3 +558,6 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
     async def stop(self):
         """Stop the running pipeline"""
         self._running = False
+        # Close the HTTP client
+        if self.client:
+            await self.client.close()
