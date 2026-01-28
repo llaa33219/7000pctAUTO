@@ -13,9 +13,14 @@ Features:
 - Structured logging with configurable log level
 """
 
+# Set SDK log level BEFORE importing any SDK packages
+# This must be done at module load time, before opencode_ai is imported
+# Using setdefault allows users to override via environment variable for debugging
+import os
+os.environ.setdefault("OPENCODE_LOG", "warn")
+
 import asyncio
 import logging
-import os
 import signal
 import subprocess
 import sys
@@ -57,23 +62,40 @@ def configure_logging(log_level: str = "INFO") -> None:
     
     # Silence noisy third-party loggers
     noisy_loggers = [
+        # SQLAlchemy
         "sqlalchemy",
         "sqlalchemy.engine",
         "sqlalchemy.pool",
         "sqlalchemy.dialects",
         "sqlalchemy.orm",
         "aiosqlite",
+        # HTTP clients
         "httpx",
+        "httpx._client",
         "httpcore",
-        "openai",
-        "openai._base_client",
+        "httpcore.http11",
+        "httpcore.http2",
+        "httpcore.connection",
         "urllib3",
-        "uvicorn.access",
         "hpack",
         "h11",
+        "h2",
+        # OpenCode SDK (uses stainless framework)
+        "opencode",
+        "opencode_ai",
+        "opencode_ai._base_client",
+        "opencode_ai._client",
+        # Stainless SDK framework (base for OpenAI/OpenCode SDKs)
+        "stainless",
+        "stainless._base_client",
+        # Uvicorn
+        "uvicorn.access",
     ]
     for logger_name in noisy_loggers:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Suppress httpx debug logging via environment variable
+    os.environ.setdefault("HTTPX_LOG_LEVEL", "WARNING")
     
     # Configure structlog
     structlog.configure(
