@@ -55,6 +55,26 @@ def configure_logging(log_level: str = "INFO") -> None:
         stream=sys.stdout,
     )
     
+    # Silence noisy third-party loggers
+    noisy_loggers = [
+        "sqlalchemy",
+        "sqlalchemy.engine",
+        "sqlalchemy.pool",
+        "sqlalchemy.dialects",
+        "sqlalchemy.orm",
+        "aiosqlite",
+        "httpx",
+        "httpcore",
+        "openai",
+        "openai._base_client",
+        "urllib3",
+        "uvicorn.access",
+        "hpack",
+        "h11",
+    ]
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
     # Configure structlog
     structlog.configure(
         processors=[
