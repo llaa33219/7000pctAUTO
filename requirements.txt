@@ -2,7 +2,7 @@
 # Core dependencies
 
 # OpenCode SDK
-opencode-ai>=0.1.0a9
+opencode-ai>=0.1.0a36
 
 # Web Framework
 fastapi>=0.109.0

@@ -174,7 +174,8 @@ class OpenCodeClient:
             client = await self._get_client()
             
             # Create session via OpenCode SDK
-            session = await client.session.create()
+            # Pass extra_body={} to send empty JSON body (server expects JSON even if empty)
+            session = await client.session.create(extra_body={})
             session_id = session.id
             
             # Store session metadata including agent name and prompt
