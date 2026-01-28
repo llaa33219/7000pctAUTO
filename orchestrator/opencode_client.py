@@ -90,7 +90,9 @@ class OpenCodeClient:
     and message handling for the 7000%AUTO agent pipeline.
     
     Agents are specified via the 'mode' parameter in session.chat(),
-    which corresponds to agents defined in opencode.json.
+    which corresponds to agents defined in opencode.json under the 'agent' key.
+    The 'system' parameter provides a fallback prompt from .opencode/agent/*.md files.
+    Each agent in opencode.json has its own model, prompt, tools, and permissions.
     """
     
     def __init__(self, base_url: Optional[str] = None):
@@ -201,16 +203,17 @@ class OpenCodeClient:
             tools: Dict[str, bool] = {"*": True}
             
             # Send chat message via OpenCode SDK
-            # - system: provides the agent's system prompt (from .opencode/agent/*.md)
+            # - mode: specifies agent/mode to use (maps to agents in opencode.json)
+            # - system: provides fallback system prompt if mode isn't recognized
             # - tools: enables MCP server tools defined in opencode.json
-            # Note: Custom agents are defined by their system prompts, not by mode parameter.
-            # The mode parameter is for OpenCode's built-in modes (build, plan, explore).
+            # OpenCode server loads agent config from opencode.json based on mode
             response = await client.session.chat(
                 session_id,
                 model_id=self.model_id,
                 provider_id=self.provider_id,
                 parts=parts,
-                system=session_data["system_prompt"],
+                mode=agent_name,  # Specify agent mode from opencode.json
+                system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
             )
             
@@ -345,14 +348,14 @@ class OpenCodeClient:
             # Enable all MCP tools
             tools: Dict[str, bool] = {"*": True}
             
-            # Use streaming response
-            # Custom agents are defined by their system prompts, not by mode parameter
+            # Use streaming response with mode parameter
             async with client.session.with_streaming_response.chat(
                 session_id,
                 model_id=self.model_id,
                 provider_id=self.provider_id,
                 parts=parts,
-                system=session_data["system_prompt"],
+                mode=session_data["agent"],  # Specify agent mode from opencode.json
+                system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
             ) as response:
                 async for chunk in response.iter_text():

@@ -1,31 +1,79 @@
 {
-  "$schema": "https://opencode.ai/schemas/config.json",
+  "$schema": "https://opencode.ai/config.json",
   "provider": "minimax",
   "model": "MiniMax-M2.1",
-  "agents": {
+  "agent": {
     "ideator": {
-      "path": ".opencode/agent/ideator.md",
-      "description": "Finds innovative project ideas from various sources"
+      "description": "Finds innovative project ideas from various sources",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/ideator.md}",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "bash": true
+      }
     },
     "planner": {
-      "path": ".opencode/agent/planner.md",
-      "description": "Creates detailed implementation plans"
+      "description": "Creates detailed implementation plans",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/planner.md}",
+      "tools": {
+        "read": true,
+        "grep": true,
+        "glob": true,
+        "bash": true
+      }
     },
     "developer": {
-      "path": ".opencode/agent/developer.md",
-      "description": "Implements code based on plans"
+      "description": "Implements code based on plans",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/developer.md}",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "grep": true,
+        "glob": true
+      }
     },
     "tester": {
-      "path": ".opencode/agent/tester.md",
-      "description": "Tests and validates implementations"
+      "description": "Tests and validates implementations",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/tester.md}",
+      "tools": {
+        "read": true,
+        "bash": true,
+        "grep": true,
+        "glob": true
+      }
     },
     "uploader": {
-      "path": ".opencode/agent/uploader.md",
-      "description": "Uploads projects to GitHub"
+      "description": "Uploads projects to GitHub",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/uploader.md}",
+      "tools": {
+        "read": true,
+        "write": true,
+        "bash": true,
+        "grep": true
+      }
     },
     "evangelist": {
-      "path": ".opencode/agent/evangelist.md",
-      "description": "Promotes projects on X/Twitter"
+      "description": "Promotes projects on X/Twitter",
+      "mode": "primary",
+      "model": "minimax/MiniMax-M2.1",
+      "prompt": "{file:.opencode/agent/evangelist.md}",
+      "tools": {
+        "read": true,
+        "bash": true
+      }
     }
   },
   "mcpServers": {
