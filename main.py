@@ -252,6 +252,16 @@ async def lifespan(app: FastAPI):
         # Initialize database
         await initialize_database()
         
+        # Mount web dashboard AFTER database is initialized
+        try:
+            from web.app import dashboard_app
+            app.mount("/dashboard", dashboard_app)
+            logger.info("Web dashboard mounted at /dashboard")
+        except ImportError:
+            logger.warning("Web dashboard not available, skipping mount")
+        except Exception as e:
+            logger.warning(f"Failed to mount web dashboard: {e}")
+        
         # Start orchestrator in background if AUTO_START is enabled
         if settings.AUTO_START:
             logger.info("AUTO_START enabled, starting orchestrator background task")
@@ -440,17 +450,10 @@ def setup_signal_handlers():
 
 
 # =============================================================================
-# Mount Web Dashboard (if available)
+# Mount Web Dashboard (mounted lazily in lifespan to avoid import issues)
 # =============================================================================
 
-try:
-    from web.app import dashboard_app
-    app.mount("/dashboard", dashboard_app)
-    logger.info("Web dashboard mounted at /dashboard")
-except ImportError:
-    logger.warning("Web dashboard not available, skipping mount")
-except Exception as e:
-    logger.warning(f"Failed to mount web dashboard: {e}")
+# Dashboard is mounted inside lifespan() after database initialization
 
 
 # =============================================================================

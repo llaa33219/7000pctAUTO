@@ -207,6 +207,9 @@ async def health_check():
     try:
         async with get_db() as session:
             await session.execute(select(func.count()).select_from(Project))
+    except RuntimeError:
+        # Database not initialized yet - this is OK during startup
+        db_status = "initializing"
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
     
@@ -214,7 +217,7 @@ async def health_check():
     orchestrator_status = "running" if (orchestrator and orchestrator.is_running) else "stopped"
     
     return {
-        "status": "healthy" if db_status == "healthy" else "degraded",
+        "status": "healthy" if db_status in ("healthy", "initializing") else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "database": db_status,
         "orchestrator": orchestrator_status,
@@ -227,71 +230,86 @@ async def get_system_status():
     """Get current system status including active project and stats."""
     orchestrator = get_orchestrator()
     
-    async with get_db() as session:
-        # Get active project (in progress)
-        active_statuses = [
-            ProjectStatus.IDEATION.value,
-            ProjectStatus.PLANNING.value,
-            ProjectStatus.DEVELOPMENT.value,
-            ProjectStatus.TESTING.value,
-            ProjectStatus.UPLOADING.value,
-            ProjectStatus.PROMOTING.value,
-        ]
-        
-        result = await session.execute(
-            select(Project)
-            .where(Project.status.in_(active_statuses))
-            .order_by(Project.updated_at.desc())
-            .limit(1)
-        )
-        active_project = result.scalar_one_or_none()
-        
-        # Get stats
-        total_result = await session.execute(select(func.count()).select_from(Project))
-        total_projects = total_result.scalar() or 0
-        
-        completed_result = await session.execute(
-            select(func.count())
-            .select_from(Project)
-            .where(Project.status == ProjectStatus.COMPLETED.value)
-        )
-        completed_projects = completed_result.scalar() or 0
-        
-        failed_result = await session.execute(
-            select(func.count())
-            .select_from(Project)
-            .where(Project.status == ProjectStatus.FAILED.value)
-        )
-        failed_projects = failed_result.scalar() or 0
-        
-        # Get dev-tester iteration count from logs
-        iteration_result = await session.execute(
-            select(func.count())
-            .select_from(AgentLog)
-            .where(AgentLog.agent_name == "tester")
-        )
-        tester_iterations = iteration_result.scalar() or 0
-        
-        active_project_data = None
-        if active_project:
-            active_project_data = {
-                "id": active_project.id,
-                "name": active_project.name,
-                "status": active_project.status.value if hasattr(active_project.status, 'value') else active_project.status,
-                "created_at": active_project.created_at.isoformat() if active_project.created_at else None,
-                "updated_at": active_project.updated_at.isoformat() if active_project.updated_at else None,
+    try:
+        async with get_db() as session:
+            # Get active project (in progress)
+            active_statuses = [
+                ProjectStatus.IDEATION.value,
+                ProjectStatus.PLANNING.value,
+                ProjectStatus.DEVELOPMENT.value,
+                ProjectStatus.TESTING.value,
+                ProjectStatus.UPLOADING.value,
+                ProjectStatus.PROMOTING.value,
+            ]
+            
+            result = await session.execute(
+                select(Project)
+                .where(Project.status.in_(active_statuses))
+                .order_by(Project.updated_at.desc())
+                .limit(1)
+            )
+            active_project = result.scalar_one_or_none()
+            
+            # Get stats
+            total_result = await session.execute(select(func.count()).select_from(Project))
+            total_projects = total_result.scalar() or 0
+            
+            completed_result = await session.execute(
+                select(func.count())
+                .select_from(Project)
+                .where(Project.status == ProjectStatus.COMPLETED.value)
+            )
+            completed_projects = completed_result.scalar() or 0
+            
+            failed_result = await session.execute(
+                select(func.count())
+                .select_from(Project)
+                .where(Project.status == ProjectStatus.FAILED.value)
+            )
+            failed_projects = failed_result.scalar() or 0
+            
+            # Get dev-tester iteration count from logs
+            iteration_result = await session.execute(
+                select(func.count())
+                .select_from(AgentLog)
+                .where(AgentLog.agent_name == "tester")
+            )
+            tester_iterations = iteration_result.scalar() or 0
+            
+            active_project_data = None
+            if active_project:
+                active_project_data = {
+                    "id": active_project.id,
+                    "name": active_project.name,
+                    "status": active_project.status.value if hasattr(active_project.status, 'value') else active_project.status,
+                    "created_at": active_project.created_at.isoformat() if active_project.created_at else None,
+                    "updated_at": active_project.updated_at.isoformat() if active_project.updated_at else None,
+                }
+            
+            return {
+                "orchestrator_running": orchestrator.is_running if orchestrator else False,
+                "active_project": active_project_data,
+                "stats": {
+                    "total_projects": total_projects,
+                    "completed_projects": completed_projects,
+                    "failed_projects": failed_projects,
+                    "in_progress": total_projects - completed_projects - failed_projects,
+                    "dev_tester_iterations": tester_iterations,
+                }
             }
-        
+    except RuntimeError:
+        # Database not initialized yet
         return {
             "orchestrator_running": orchestrator.is_running if orchestrator else False,
-            "active_project": active_project_data,
+            "active_project": None,
             "stats": {
-                "total_projects": total_projects,
-                "completed_projects": completed_projects,
-                "failed_projects": failed_projects,
-                "in_progress": total_projects - completed_projects - failed_projects,
-                "dev_tester_iterations": tester_iterations,
-            }
+                "total_projects": 0,
+                "completed_projects": 0,
+                "failed_projects": 0,
+                "in_progress": 0,
+                "dev_tester_iterations": 0,
+            },
+            "database_status": "initializing"
         }
 
 
@@ -302,90 +320,96 @@ async def list_projects(
     status: Optional[str] = None
 ):
     """List all projects with pagination."""
-    async with get_db() as session:
-        query = select(Project)
-        count_query = select(func.count()).select_from(Project)
-        
-        if status:
-            query = query.where(Project.status == status)
-            count_query = count_query.where(Project.status == status)
-        
-        # Get total count
-        total_result = await session.execute(count_query)
-        total = total_result.scalar() or 0
-        
-        # Get paginated results
-        offset = (page - 1) * per_page
-        query = query.order_by(desc(Project.created_at)).offset(offset).limit(per_page)
-        
-        result = await session.execute(query)
-        projects = result.scalars().all()
-        
-        return {
-            "projects": [
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "status": p.status.value if hasattr(p.status, 'value') else p.status,
-                    "github_url": p.github_url,
-                    "x_post_url": p.x_post_url,
-                    "created_at": p.created_at.isoformat() if p.created_at else None,
-                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    try:
+        async with get_db() as session:
+            query = select(Project)
+            count_query = select(func.count()).select_from(Project)
+            
+            if status:
+                query = query.where(Project.status == status)
+                count_query = count_query.where(Project.status == status)
+            
+            # Get total count
+            total_result = await session.execute(count_query)
+            total = total_result.scalar() or 0
+            
+            # Get paginated results
+            offset = (page - 1) * per_page
+            query = query.order_by(desc(Project.created_at)).offset(offset).limit(per_page)
+            
+            result = await session.execute(query)
+            projects = result.scalars().all()
+            
+            return {
+                "projects": [
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "status": p.status.value if hasattr(p.status, 'value') else p.status,
+                        "github_url": p.github_url,
+                        "x_post_url": p.x_post_url,
+                        "created_at": p.created_at.isoformat() if p.created_at else None,
+                        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                    }
+                    for p in projects
+                ],
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "pages": (total + per_page - 1) // per_page if per_page > 0 else 0
                 }
-                for p in projects
-            ],
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "pages": (total + per_page - 1) // per_page if per_page > 0 else 0
             }
-        }
+    except RuntimeError:
+        return {"projects": [], "pagination": {"page": 1, "per_page": per_page, "total": 0, "pages": 0}, "database_status": "initializing"}
 
 
 @dashboard_app.get("/api/projects/{project_id}")
 async def get_project(project_id: int):
     """Get detailed information for a single project."""
-    async with get_db() as session:
-        result = await session.execute(
-            select(Project).where(Project.id == project_id)
-        )
-        project = result.scalar_one_or_none()
-        
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Get logs for this project
-        logs_result = await session.execute(
-            select(AgentLog)
-            .where(AgentLog.project_id == project_id)
-            .order_by(desc(AgentLog.created_at))
-            .limit(50)
-        )
-        logs = logs_result.scalars().all()
-        
-        return {
-            "id": project.id,
-            "idea_id": project.idea_id,
-            "name": project.name,
-            "status": project.status.value if hasattr(project.status, 'value') else project.status,
-            "plan_json": project.plan_json,
-            "github_url": project.github_url,
-            "x_post_url": project.x_post_url,
-            "dev_test_iterations": project.dev_test_iterations,
-            "created_at": project.created_at.isoformat() if project.created_at else None,
-            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-            "logs": [
-                {
-                    "id": log.id,
-                    "agent_name": log.agent_name,
-                    "message": log.message,
-                    "log_type": log.log_type.value if hasattr(log.log_type, 'value') else log.log_type,
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
-                }
-                for log in logs
-            ]
-        }
+    try:
+        async with get_db() as session:
+            result = await session.execute(
+                select(Project).where(Project.id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
+            
+            # Get logs for this project
+            logs_result = await session.execute(
+                select(AgentLog)
+                .where(AgentLog.project_id == project_id)
+                .order_by(desc(AgentLog.created_at))
+                .limit(50)
+            )
+            logs = logs_result.scalars().all()
+            
+            return {
+                "id": project.id,
+                "idea_id": project.idea_id,
+                "name": project.name,
+                "status": project.status.value if hasattr(project.status, 'value') else project.status,
+                "plan_json": project.plan_json,
+                "github_url": project.github_url,
+                "x_post_url": project.x_post_url,
+                "dev_test_iterations": project.dev_test_iterations,
+                "created_at": project.created_at.isoformat() if project.created_at else None,
+                "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+                "logs": [
+                    {
+                        "id": log.id,
+                        "agent_name": log.agent_name,
+                        "message": log.message,
+                        "log_type": log.log_type.value if hasattr(log.log_type, 'value') else log.log_type,
+                        "created_at": log.created_at.isoformat() if log.created_at else None,
+                    }
+                    for log in logs
+                ]
+            }
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database not initialized")
 
 
 @dashboard_app.get("/api/ideas")
@@ -396,40 +420,43 @@ async def list_ideas(
     """List all generated ideas."""
     from database import Idea
     
-    async with get_db() as session:
-        query = select(Idea)
-        count_query = select(func.count()).select_from(Idea)
-        
-        # Get total count
-        total_result = await session.execute(count_query)
-        total = total_result.scalar() or 0
-        
-        # Get paginated results
-        offset = (page - 1) * per_page
-        query = query.order_by(desc(Idea.created_at)).offset(offset).limit(per_page)
-        
-        result = await session.execute(query)
-        ideas = result.scalars().all()
-        
-        return {
-            "ideas": [
-                {
-                    "id": idea.id,
-                    "title": idea.title,
-                    "description": idea.description,
-                    "source": idea.source.value if hasattr(idea.source, 'value') else idea.source,
-                    "used": idea.used,
-                    "created_at": idea.created_at.isoformat() if idea.created_at else None,
+    try:
+        async with get_db() as session:
+            query = select(Idea)
+            count_query = select(func.count()).select_from(Idea)
+            
+            # Get total count
+            total_result = await session.execute(count_query)
+            total = total_result.scalar() or 0
+            
+            # Get paginated results
+            offset = (page - 1) * per_page
+            query = query.order_by(desc(Idea.created_at)).offset(offset).limit(per_page)
+            
+            result = await session.execute(query)
+            ideas = result.scalars().all()
+            
+            return {
+                "ideas": [
+                    {
+                        "id": idea.id,
+                        "title": idea.title,
+                        "description": idea.description,
+                        "source": idea.source.value if hasattr(idea.source, 'value') else idea.source,
+                        "used": idea.used,
+                        "created_at": idea.created_at.isoformat() if idea.created_at else None,
+                    }
+                    for idea in ideas
+                ],
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "pages": (total + per_page - 1) // per_page if per_page > 0 else 0
                 }
-                for idea in ideas
-            ],
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "pages": (total + per_page - 1) // per_page if per_page > 0 else 0
             }
-        }
+    except RuntimeError:
+        return {"ideas": [], "pagination": {"page": 1, "per_page": per_page, "total": 0, "pages": 0}, "database_status": "initializing"}
 
 
 @dashboard_app.get("/api/logs/stream")
@@ -485,6 +512,16 @@ async def stream_logs():
                         })
                     }
                     
+            except RuntimeError:
+                # Database not initialized
+                yield {
+                    "event": "status",
+                    "data": json.dumps({
+                        "orchestrator_running": False,
+                        "database_status": "initializing",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    })
+                }
             except Exception as e:
                 yield {
                     "event": "error",
