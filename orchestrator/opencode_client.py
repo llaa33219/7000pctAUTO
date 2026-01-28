@@ -252,7 +252,7 @@ class OpenCodeClient:
             # - mode: specifies agent/mode to use (maps to agents in opencode.json)
             # - system: provides fallback system prompt if mode isn't recognized
             # - tools: enables MCP server tools defined in opencode.json
-            # - max_tokens: maximum output tokens (from OPENCODE_MAX_TOKENS env var)
+            # - extra_body: additional params including max_tokens for output limit
             # OpenCode server loads agent config from opencode.json based on mode
             response = await client.session.chat(
                 session_id,
@@ -262,7 +262,7 @@ class OpenCodeClient:
                 mode=agent_name,  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
-                max_tokens=settings.OPENCODE_MAX_TOKENS,  # Set output token limit
+                extra_body={"max_tokens": settings.OPENCODE_MAX_TOKENS},  # Set output token limit via extra_body
             )
             
             # Check for errors in the response
@@ -791,7 +791,7 @@ class OpenCodeClient:
                 mode=session_data["agent"],  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
-                max_tokens=settings.OPENCODE_MAX_TOKENS,  # Set output token limit
+                extra_body={"max_tokens": settings.OPENCODE_MAX_TOKENS},  # Set output token limit via extra_body
             ) as response:
                 async for chunk in response.iter_text():
                     if chunk:
