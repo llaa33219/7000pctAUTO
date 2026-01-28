@@ -115,10 +115,11 @@ async def start_opencode_server() -> Optional[str]:
     global opencode_process, opencode_server_url
     
     # Check if OpenCode CLI is available
-    # Check multiple locations: shared location, user home, and PATH
+    # Check multiple locations: npm global, user home, and PATH
     possible_paths = [
-        "/usr/local/opencode/bin/opencode",  # Shared location (Docker)
-        os.path.expanduser("~/.opencode/bin/opencode"),  # User home
+        "/usr/local/bin/opencode",  # npm global bin (Docker)
+        "/usr/bin/opencode",  # System bin
+        os.path.expanduser("~/.opencode/bin/opencode"),  # User home (curl install)
     ]
     
     opencode_path = None
