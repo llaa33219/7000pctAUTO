@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator, List
 
+import httpx
+
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -138,12 +140,18 @@ class OpenCodeClient:
             try:
                 from opencode_ai import AsyncOpencode
                 
-                client_kwargs = {}
+                # Set generous timeout for AI model responses (300 seconds)
+                # AI models can take a long time to generate responses
+                timeout = httpx.Timeout(300.0, connect=30.0)
+                
+                client_kwargs = {
+                    "timeout": timeout,
+                }
                 if self.base_url:
                     client_kwargs["base_url"] = self.base_url
                 
                 self._client = AsyncOpencode(**client_kwargs)
-                logger.info(f"OpenCode client initialized (base_url: {self.base_url or 'default'})")
+                logger.info(f"OpenCode client initialized (base_url: {self.base_url or 'default'}, timeout: 300s)")
             except ImportError:
                 raise OpenCodeError("opencode-ai package not installed. Run: pip install opencode-ai")
             except Exception as e:
@@ -276,6 +284,67 @@ class OpenCodeClient:
                 f"Failed to send message (is OpenCode server running at {server_url}?): {e}"
             )
     
+    def _is_message_completed(self, info: Any, context: str = "") -> bool:
+        """
+        Check if a message is completed using multiple strategies.
+        
+        Checks in order:
+        1. status == "completed" (OpenCode SDK standard)
+        2. completed_at is not None (timestamp exists)
+        3. time.completed is not None (legacy fallback)
+        
+        Args:
+            info: Message info object
+            context: Context string for debug logging
+            
+        Returns:
+            True if message is completed, False otherwise
+        """
+        if info is None:
+            return False
+        
+        # Debug log: dump all available fields on info object
+        if logger.isEnabledFor(logging.DEBUG):
+            info_fields = {}
+            for attr in ['id', 'role', 'status', 'completed_at', 'created_at', 'time', 'error']:
+                val = getattr(info, attr, '<not found>')
+                info_fields[attr] = str(val) if val != '<not found>' else val
+            logger.debug(f"{context} - info fields: {info_fields}")
+            
+            # Also try model_dump if available
+            if hasattr(info, 'model_dump'):
+                try:
+                    dump = info.model_dump()
+                    logger.debug(f"{context} - info model_dump: {dump}")
+                except Exception as e:
+                    logger.debug(f"{context} - model_dump failed: {e}")
+        
+        # Strategy 1: Check status field (OpenCode SDK standard)
+        status = getattr(info, 'status', None)
+        if status is not None:
+            logger.debug(f"{context} - status={status}")
+            if status == "completed":
+                return True
+            # If status is explicitly "in_progress" or "incomplete", not done
+            if status in ("in_progress", "incomplete"):
+                return False
+        
+        # Strategy 2: Check completed_at timestamp
+        completed_at = getattr(info, 'completed_at', None)
+        if completed_at is not None:
+            logger.debug(f"{context} - completed_at={completed_at}")
+            return True
+        
+        # Strategy 3: Legacy fallback - check time.completed
+        time_info = getattr(info, 'time', None)
+        if time_info:
+            completed = getattr(time_info, 'completed', None)
+            if completed is not None:
+                logger.debug(f"{context} - time.completed={completed}")
+                return True
+        
+        return False
+
     async def _wait_for_completion(
         self, 
         client: Any, 
@@ -287,8 +356,12 @@ class OpenCodeClient:
         Wait for agent to complete processing.
         
         The session.chat() method returns immediately with an AssistantMessage.
-        If time.completed is None, the agent is still running.
-        We need to poll session.messages() until the specific message is complete.
+        We need to poll session.messages() until the message is complete.
+        
+        Completion is determined by:
+        1. status == "completed"
+        2. completed_at timestamp exists
+        3. time.completed exists (legacy fallback)
         
         Args:
             client: OpenCode client instance
@@ -302,13 +375,21 @@ class OpenCodeClient:
         # Check for error in initial response
         self._check_response_for_error(initial_response, "initial response")
         
+        # Debug log initial response structure
+        logger.debug(f"Session {session_id}: Initial response type={type(initial_response).__name__}")
+        if hasattr(initial_response, 'model_dump'):
+            try:
+                dump = initial_response.model_dump()
+                logger.debug(f"Session {session_id}: Initial response dump={dump}")
+            except Exception as e:
+                logger.debug(f"Session {session_id}: Initial response model_dump failed: {e}")
+        
         # Check if initial response is already complete
-        time_info = getattr(initial_response, 'time', None)
-        if time_info:
-            completed = getattr(time_info, 'completed', None)
-            if completed is not None:
-                logger.debug(f"Session {session_id}: Agent already completed (message: {message_id})")
-                return
+        # Note: initial_response could be AssistantMessage with nested info, or have completion fields directly
+        initial_info = getattr(initial_response, 'info', initial_response)
+        if self._is_message_completed(initial_info, f"Session {session_id} initial"):
+            logger.debug(f"Session {session_id}: Agent already completed in initial response (message: {message_id})")
+            return
         
         # Poll for completion
         poll_interval = 1.0  # seconds
@@ -324,6 +405,7 @@ class OpenCodeClient:
                 messages_response = await client.session.messages(session_id)
                 
                 if not messages_response:
+                    logger.debug(f"Session {session_id}: No messages in response (poll {poll_count + 1})")
                     continue
                 
                 # Find the specific message by ID, or fall back to last assistant message
@@ -353,13 +435,13 @@ class OpenCodeClient:
                         # Check for errors in the message
                         self._check_response_for_error(info, f"message {message_id}")
                         
-                        # Check time.completed on the message info
-                        time_info = getattr(info, 'time', None)
-                        if time_info:
-                            completed = getattr(time_info, 'completed', None)
-                            if completed is not None:
-                                logger.info(f"Session {session_id}: Agent completed after {poll_count + 1}s (message: {message_id})")
-                                return
+                        # Check completion using multiple strategies
+                        context = f"Session {session_id} poll {poll_count + 1}"
+                        if self._is_message_completed(info, context):
+                            logger.info(f"Session {session_id}: Agent completed after {poll_count + 1}s (message: {message_id})")
+                            return
+                else:
+                    logger.debug(f"Session {session_id}: No matching assistant message found (poll {poll_count + 1})")
                 
                 # Log progress every 10 polls
                 if (poll_count + 1) % 10 == 0:
