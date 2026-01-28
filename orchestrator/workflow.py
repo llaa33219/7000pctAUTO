@@ -431,7 +431,7 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
             idea = await self.run_ideator(project_id)
             if not idea:
                 await update_project_status(project_id, "failed")
-                return False
+                return {"success": False, "project_id": project_id, "error": "Ideator failed to generate idea"}
             
             await self.state_manager.update_state(project_id, idea=idea)
             
@@ -440,7 +440,7 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
             plan = await self.run_planner(project_id, idea)
             if not plan:
                 await update_project_status(project_id, "failed")
-                return False
+                return {"success": False, "project_id": project_id, "error": "Planner failed to create plan"}
             
             await self.state_manager.update_state(project_id, plan=plan)
             await update_project_status(project_id, "planning", plan_json=plan)
@@ -492,14 +492,14 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
             
             if not self._running:
                 await update_project_status(project_id, "failed")
-                return False
+                return {"success": False, "project_id": project_id, "error": "Pipeline was stopped"}
             
             # 4. UPLOADER
             await update_project_status(project_id, "uploading", current_agent="uploader")
             github_url = await self.run_uploader(project_id, project_name)
             if not github_url:
                 await update_project_status(project_id, "failed")
-                return False
+                return {"success": False, "project_id": project_id, "error": "Uploader failed to upload to GitHub"}
             
             await update_project_status(project_id, "uploading", github_url=github_url)
             
