@@ -299,6 +299,9 @@ class OpenCodeClient:
         # Get the message ID to track the specific message
         message_id = getattr(initial_response, 'id', None)
         
+        # Check for error in initial response
+        self._check_response_for_error(initial_response, "initial response")
+        
         # Check if initial response is already complete
         time_info = getattr(initial_response, 'time', None)
         if time_info:
@@ -347,6 +350,9 @@ class OpenCodeClient:
                 if target_message:
                     info = getattr(target_message, 'info', None)
                     if info:
+                        # Check for errors in the message
+                        self._check_response_for_error(info, f"message {message_id}")
+                        
                         # Check time.completed on the message info
                         time_info = getattr(info, 'time', None)
                         if time_info:
@@ -359,14 +365,132 @@ class OpenCodeClient:
                 if (poll_count + 1) % 10 == 0:
                     logger.info(f"Session {session_id}: Still waiting... ({poll_count + 1}s elapsed)")
                     
+            except OpenCodeError:
+                # Re-raise OpenCodeError (API errors, etc.)
+                raise
             except Exception as e:
                 logger.warning(f"Session {session_id}: Error polling for completion: {e}")
-                # Continue polling despite errors
+                # Continue polling despite other errors
         
         # Timeout reached
         logger.warning(f"Session {session_id}: Timeout after {timeout_seconds}s waiting for agent completion")
         raise OpenCodeError(f"Agent timed out after {timeout_seconds} seconds")
     
+    def _check_response_for_error(self, response: Any, context: str = "") -> None:
+        """
+        Check response object for error information and raise OpenCodeError if found.
+        
+        Args:
+            response: Response object to check (could be message info or full response)
+            context: Context string for error messages
+            
+        Raises:
+            OpenCodeError: If an error is detected in the response
+        """
+        if response is None:
+            return
+        
+        # Check for 'error' attribute directly
+        error = getattr(response, 'error', None)
+        if error:
+            error_message = self._extract_error_message(error)
+            if error_message:
+                logger.error(f"API error detected in {context}: {error_message}")
+                raise OpenCodeError(f"API Error: {error_message}")
+        
+        # Check via model_dump if available
+        if hasattr(response, 'model_dump'):
+            try:
+                dump = response.model_dump()
+                if isinstance(dump, dict) and 'error' in dump and dump['error']:
+                    error_data = dump['error']
+                    error_message = self._extract_error_message_from_dict(error_data)
+                    if error_message:
+                        logger.error(f"API error detected in {context} (from dump): {error_message}")
+                        raise OpenCodeError(f"API Error: {error_message}")
+            except Exception as e:
+                logger.debug(f"Could not check model_dump for errors: {e}")
+    
+    def _extract_error_message(self, error: Any) -> Optional[str]:
+        """
+        Extract a human-readable error message from an error object.
+        
+        Args:
+            error: Error object (could be ProviderAuthError, APIError, etc.)
+            
+        Returns:
+            Error message string or None
+        """
+        if error is None:
+            return None
+        
+        # Try to get error name/type
+        error_name = getattr(error, 'name', None) or type(error).__name__
+        
+        # Try to get data.message or data.error
+        data = getattr(error, 'data', None)
+        if data:
+            message = getattr(data, 'message', None) or getattr(data, 'error', None)
+            if message:
+                return f"{error_name}: {message}"
+            # Try dict access
+            if hasattr(data, 'get'):
+                message = data.get('message') or data.get('error')
+                if message:
+                    return f"{error_name}: {message}"
+        
+        # Try direct message attribute
+        message = getattr(error, 'message', None)
+        if message:
+            return f"{error_name}: {message}"
+        
+        # Check for common auth error patterns
+        if 'Auth' in error_name or 'auth' in str(error).lower():
+            return f"{error_name}: Authentication failed - check your MINIMAX_API_KEY"
+        
+        # Fallback to string representation
+        error_str = str(error)
+        if error_str and error_str != str(type(error)):
+            # Truncate very long error messages
+            if len(error_str) > 200:
+                error_str = error_str[:200] + "..."
+            return f"{error_name}: {error_str}"
+        
+        return error_name
+    
+    def _extract_error_message_from_dict(self, error_data: Any) -> Optional[str]:
+        """
+        Extract error message from a dict representation of an error.
+        
+        Args:
+            error_data: Error data as dict
+            
+        Returns:
+            Error message string or None
+        """
+        if not isinstance(error_data, dict):
+            return str(error_data) if error_data else None
+        
+        error_name = error_data.get('name', 'Error')
+        
+        # Check for nested data
+        data = error_data.get('data', {})
+        if isinstance(data, dict):
+            message = data.get('message') or data.get('error')
+            if message:
+                return f"{error_name}: {message}"
+        
+        # Direct message
+        message = error_data.get('message') or error_data.get('error')
+        if message:
+            return f"{error_name}: {message}"
+        
+        # Check for auth errors
+        if 'Auth' in error_name or 'ProviderAuth' in error_name:
+            return f"{error_name}: Authentication failed - check your MINIMAX_API_KEY"
+        
+        return error_name if error_name != 'Error' else None
+
     async def _fetch_message_content(self, client: Any, session_id: str) -> str:
         """
         Fetch actual message content from session messages.
@@ -381,6 +505,9 @@ class OpenCodeClient:
             
         Returns:
             Extracted text content from the last assistant message
+            
+        Raises:
+            OpenCodeError: If an API error is detected in the message
         """
         try:
             # Fetch all messages for the session
@@ -406,6 +533,11 @@ class OpenCodeClient:
                 logger.warning(f"No assistant message found for session {session_id}")
                 return ""
             
+            # Check for errors in the assistant message info
+            info = getattr(assistant_message, 'info', None)
+            if info:
+                self._check_response_for_error(info, f"session {session_id}")
+            
             # Extract text from parts
             texts = []
             parts = getattr(assistant_message, 'parts', None) or []
@@ -424,6 +556,15 @@ class OpenCodeClient:
             # Fallback: try to extract from dict representation
             if hasattr(assistant_message, 'model_dump'):
                 dump = assistant_message.model_dump()
+                
+                # Check for error in dumped data
+                info_dump = dump.get('info', {})
+                if isinstance(info_dump, dict) and info_dump.get('error'):
+                    error_msg = self._extract_error_message_from_dict(info_dump.get('error'))
+                    if error_msg:
+                        logger.error(f"API error in session {session_id}: {error_msg}")
+                        raise OpenCodeError(f"API Error: {error_msg}")
+                
                 parts_data = dump.get('parts', [])
                 fallback_texts = []
                 for part_data in parts_data:
@@ -434,8 +575,13 @@ class OpenCodeClient:
                 if fallback_texts:
                     return '\n'.join(fallback_texts)
             
+            # If we got here with no text content, log a warning
+            logger.warning(f"Session {session_id}: No text content found in assistant message")
             return ""
             
+        except OpenCodeError:
+            # Re-raise OpenCodeError
+            raise
         except Exception as e:
             logger.warning(f"Failed to fetch message content: {e}")
             return ""

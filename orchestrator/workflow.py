@@ -105,6 +105,7 @@ class WorkflowOrchestrator:
             message="Starting idea generation"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("ideator")
             
@@ -122,8 +123,13 @@ class WorkflowOrchestrator:
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
-            idea = self.client.parse_json_from_response(response.get("content", ""))
+            content = response.get("content", "")
+            if not content:
+                raise Exception("Empty response from ideator agent")
+            
+            idea = self.client.parse_json_from_response(content)
             
             if idea:
                 await self._log(project_id, "ideator", f"Generated idea: {idea.get('title', 'Unknown')}", "output")
@@ -135,16 +141,27 @@ class WorkflowOrchestrator:
                 ))
                 return idea
             
-            raise Exception("Failed to parse idea from response")
+            raise Exception(f"Failed to parse idea from response (content length: {len(content)} chars)")
             
         except Exception as e:
-            await self._log(project_id, "ideator", f"Error: {str(e)}", "error")
+            error_msg = str(e)
+            # Provide more helpful error messages for common issues
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "ideator", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_ERROR,
                 agent="ideator",
-                message=str(e)
+                message=error_msg
             ))
             return None
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_planner(self, project_id: int, idea: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Run the Planner agent to create implementation plan"""
@@ -154,6 +171,7 @@ class WorkflowOrchestrator:
             message="Creating implementation plan"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("planner")
             
@@ -172,8 +190,13 @@ Output your plan in the specified JSON format."""
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
-            plan = self.client.parse_json_from_response(response.get("content", ""))
+            content = response.get("content", "")
+            if not content:
+                raise Exception("Empty response from planner agent")
+            
+            plan = self.client.parse_json_from_response(content)
             
             if plan:
                 await self._log(project_id, "planner", f"Created plan for: {plan.get('project_name', 'Unknown')}", "output")
@@ -185,16 +208,26 @@ Output your plan in the specified JSON format."""
                 ))
                 return plan
             
-            raise Exception("Failed to parse plan from response")
+            raise Exception(f"Failed to parse plan from response (content length: {len(content)} chars)")
             
         except Exception as e:
-            await self._log(project_id, "planner", f"Error: {str(e)}", "error")
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "planner", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_ERROR,
                 agent="planner",
-                message=str(e)
+                message=error_msg
             ))
             return None
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_developer(self, project_id: int, plan: Dict[str, Any], feedback: Optional[str] = None) -> bool:
         """Run the Developer agent to implement the project"""
@@ -204,6 +237,7 @@ Output your plan in the specified JSON format."""
             message="Starting implementation" if not feedback else "Fixing bugs"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("developer")
             
@@ -222,6 +256,7 @@ Create all files, install dependencies, and ensure the project is complete and w
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
             await self._log(project_id, "developer", "Implementation completed", "output")
             await self._emit_event(WorkflowEvent(
@@ -232,13 +267,23 @@ Create all files, install dependencies, and ensure the project is complete and w
             return True
             
         except Exception as e:
-            await self._log(project_id, "developer", f"Error: {str(e)}", "error")
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "developer", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_ERROR,
                 agent="developer",
-                message=str(e)
+                message=error_msg
             ))
             return False
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_tester(self, project_id: int) -> Dict[str, Any]:
         """Run the Tester agent to validate the implementation"""
@@ -248,6 +293,7 @@ Create all files, install dependencies, and ensure the project is complete and w
             message="Running tests"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("tester")
             
@@ -262,6 +308,7 @@ Output your results in the specified JSON format with status "PASS" or "FAIL".""
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
             result = self.client.parse_json_from_response(response.get("content", ""))
             
@@ -289,8 +336,18 @@ Output your results in the specified JSON format with status "PASS" or "FAIL".""
             return {"status": "FAIL", "error": "Failed to parse test results"}
             
         except Exception as e:
-            await self._log(project_id, "tester", f"Error: {str(e)}", "error")
-            return {"status": "FAIL", "error": str(e)}
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "tester", f"Error: {error_msg}", "error")
+            return {"status": "FAIL", "error": error_msg}
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_uploader(self, project_id: int, project_name: str) -> Optional[str]:
         """Run the Uploader agent to publish to GitHub"""
@@ -300,6 +357,7 @@ Output your results in the specified JSON format with status "PASS" or "FAIL".""
             message="Uploading to GitHub"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("uploader")
             
@@ -315,6 +373,7 @@ Output the repository URL when complete."""
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
             result = self.client.parse_json_from_response(response.get("content", ""))
             github_url = result.get("repository", {}).get("url") if result else None
@@ -332,13 +391,23 @@ Output the repository URL when complete."""
             raise Exception("Failed to get GitHub URL from response")
             
         except Exception as e:
-            await self._log(project_id, "uploader", f"Error: {str(e)}", "error")
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "uploader", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_ERROR,
                 agent="uploader",
-                message=str(e)
+                message=error_msg
             ))
             return None
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_evangelist(self, project_id: int, github_url: str, project_info: Dict[str, Any]) -> Optional[str]:
         """Run the Evangelist agent to promote on X/Twitter"""
@@ -348,6 +417,7 @@ Output the repository URL when complete."""
             message="Creating promotional post"
         ))
         
+        session_id = None
         try:
             session_id = await self.client.create_session("evangelist")
             
@@ -361,6 +431,7 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
             
             response = await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
+            session_id = None
             
             result = self.client.parse_json_from_response(response.get("content", ""))
             tweet_url = result.get("tweet", {}).get("url") if result else None
@@ -380,13 +451,23 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
             return "posted"
             
         except Exception as e:
-            await self._log(project_id, "evangelist", f"Error: {str(e)}", "error")
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+            
+            await self._log(project_id, "evangelist", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_ERROR,
                 agent="evangelist",
-                message=str(e)
+                message=error_msg
             ))
             return None
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
     
     async def run_full_pipeline(self) -> Dict[str, Any]:
         """

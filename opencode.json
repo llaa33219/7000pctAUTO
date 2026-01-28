@@ -2,10 +2,10 @@
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "minimax": {
-      "npm": "@ai-sdk/openai-compatible",
+      "npm": "@ai-sdk/anthropic",
       "name": "MiniMax",
       "options": {
-        "baseURL": "https://api.minimax.chat/v1",
+        "baseURL": "https://api.minimax.io/anthropic/v1",
         "apiKey": "{env:MINIMAX_API_KEY}"
       },
       "models": {
