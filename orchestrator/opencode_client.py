@@ -99,6 +99,15 @@ class OpenCodeError(Exception):
     pass
 
 
+def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Get a value from either a dict or an object attribute."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 class OpenCodeClient:
     """
     Client for AI agent interactions using OpenCode SDK.
@@ -287,14 +296,15 @@ class OpenCodeClient:
     def _is_message_completed(self, info: Any, context: str = "") -> bool:
         """
         Check if a message is completed using multiple strategies.
+        Handles both dict and object info representations.
         
         Checks in order:
-        1. status == "completed" (OpenCode SDK standard)
-        2. completed_at is not None (timestamp exists)
-        3. time.completed is not None (legacy fallback)
+        1. time.completed is not None (primary - matches actual API response)
+        2. status == "completed"
+        3. completed_at timestamp exists
         
         Args:
-            info: Message info object
+            info: Message info object or dict
             context: Context string for debug logging
             
         Returns:
@@ -303,45 +313,41 @@ class OpenCodeClient:
         if info is None:
             return False
         
-        # Debug log: dump all available fields on info object
+        # Debug log: dump available fields
         if logger.isEnabledFor(logging.DEBUG):
             info_fields = {}
-            for attr in ['id', 'role', 'status', 'completed_at', 'created_at', 'time', 'error']:
-                val = getattr(info, attr, '<not found>')
-                info_fields[attr] = str(val) if val != '<not found>' else val
+            for attr in ['id', 'role', 'status', 'completed_at', 'created_at', 'time', 'error', 'finish']:
+                info_fields[attr] = _safe_get(info, attr, '<not found>')
             logger.debug(f"{context} - info fields: {info_fields}")
-            
-            # Also try model_dump if available
-            if hasattr(info, 'model_dump'):
-                try:
-                    dump = info.model_dump()
-                    logger.debug(f"{context} - info model_dump: {dump}")
-                except Exception as e:
-                    logger.debug(f"{context} - model_dump failed: {e}")
         
-        # Strategy 1: Check status field (OpenCode SDK standard)
-        status = getattr(info, 'status', None)
+        # Strategy 1: Check time.completed (primary - matches actual API response)
+        time_info = _safe_get(info, 'time')
+        if time_info:
+            completed = _safe_get(time_info, 'completed')
+            if completed is not None:
+                logger.debug(f"{context} - time.completed={completed}")
+                return True
+        
+        # Strategy 2: Check finish field (e.g. finish='stop' means done)
+        finish = _safe_get(info, 'finish')
+        if finish == 'stop':
+            logger.debug(f"{context} - finish={finish}")
+            return True
+        
+        # Strategy 3: Check status field
+        status = _safe_get(info, 'status')
         if status is not None:
             logger.debug(f"{context} - status={status}")
             if status == "completed":
                 return True
-            # If status is explicitly "in_progress" or "incomplete", not done
             if status in ("in_progress", "incomplete"):
                 return False
         
-        # Strategy 2: Check completed_at timestamp
-        completed_at = getattr(info, 'completed_at', None)
+        # Strategy 4: Check completed_at timestamp
+        completed_at = _safe_get(info, 'completed_at')
         if completed_at is not None:
             logger.debug(f"{context} - completed_at={completed_at}")
             return True
-        
-        # Strategy 3: Legacy fallback - check time.completed
-        time_info = getattr(info, 'time', None)
-        if time_info:
-            completed = getattr(time_info, 'completed', None)
-            if completed is not None:
-                logger.debug(f"{context} - time.completed={completed}")
-                return True
         
         return False
 
@@ -369,26 +375,28 @@ class OpenCodeClient:
             initial_response: Initial AssistantMessage from session.chat()
             timeout_seconds: Maximum time to wait for completion
         """
-        # Get the message ID to track the specific message
-        message_id = getattr(initial_response, 'id', None)
+        # Extract message info - could be nested under .info (dict or object)
+        initial_info = _safe_get(initial_response, 'info', initial_response)
+        
+        # Get the message ID from info (where the real data lives)
+        message_id = _safe_get(initial_info, 'id') or _safe_get(initial_response, 'id')
         
         # Check for error in initial response
         self._check_response_for_error(initial_response, "initial response")
         
         # Debug log initial response structure
-        logger.debug(f"Session {session_id}: Initial response type={type(initial_response).__name__}")
-        if hasattr(initial_response, 'model_dump'):
-            try:
-                dump = initial_response.model_dump()
-                logger.debug(f"Session {session_id}: Initial response dump={dump}")
-            except Exception as e:
-                logger.debug(f"Session {session_id}: Initial response model_dump failed: {e}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Session {session_id}: Initial response type={type(initial_response).__name__}")
+            if hasattr(initial_response, 'model_dump'):
+                try:
+                    dump = initial_response.model_dump()
+                    logger.debug(f"Session {session_id}: Initial response dump={dump}")
+                except Exception:
+                    pass
         
         # Check if initial response is already complete
-        # Note: initial_response could be AssistantMessage with nested info, or have completion fields directly
-        initial_info = getattr(initial_response, 'info', initial_response)
         if self._is_message_completed(initial_info, f"Session {session_id} initial"):
-            logger.debug(f"Session {session_id}: Agent already completed in initial response (message: {message_id})")
+            logger.info(f"Session {session_id}: Agent already completed in initial response (message: {message_id})")
             return
         
         # Poll for completion
@@ -412,25 +420,25 @@ class OpenCodeClient:
                 target_message = None
                 
                 for msg in reversed(messages_response):
-                    info = getattr(msg, 'info', None)
+                    info = _safe_get(msg, 'info')
                     if not info:
                         continue
                     
                     # Match by message ID if available
                     if message_id:
-                        msg_id = getattr(info, 'id', None)
+                        msg_id = _safe_get(info, 'id')
                         if msg_id == message_id:
                             target_message = msg
                             break
                     else:
                         # Fallback: match last assistant message
-                        role = getattr(info, 'role', None)
+                        role = _safe_get(info, 'role')
                         if role == 'assistant':
                             target_message = msg
                             break
                 
                 if target_message:
-                    info = getattr(target_message, 'info', None)
+                    info = _safe_get(target_message, 'info')
                     if info:
                         # Check for errors in the message
                         self._check_response_for_error(info, f"message {message_id}")
@@ -448,11 +456,9 @@ class OpenCodeClient:
                     logger.info(f"Session {session_id}: Still waiting... ({poll_count + 1}s elapsed)")
                     
             except OpenCodeError:
-                # Re-raise OpenCodeError (API errors, etc.)
                 raise
             except Exception as e:
                 logger.warning(f"Session {session_id}: Error polling for completion: {e}")
-                # Continue polling despite other errors
         
         # Timeout reached
         logger.warning(f"Session {session_id}: Timeout after {timeout_seconds}s waiting for agent completion")
@@ -472,8 +478,8 @@ class OpenCodeClient:
         if response is None:
             return
         
-        # Check for 'error' attribute directly
-        error = getattr(response, 'error', None)
+        # Check for 'error' attribute directly (handles both dict and object)
+        error = _safe_get(response, 'error')
         if error:
             error_message = self._extract_error_message(error)
             if error_message:
@@ -495,10 +501,10 @@ class OpenCodeClient:
     
     def _extract_error_message(self, error: Any) -> Optional[str]:
         """
-        Extract a human-readable error message from an error object.
+        Extract a human-readable error message from an error object or dict.
         
         Args:
-            error: Error object (could be ProviderAuthError, APIError, etc.)
+            error: Error object or dict (could be ProviderAuthError, APIError, etc.)
             
         Returns:
             Error message string or None
@@ -506,23 +512,21 @@ class OpenCodeClient:
         if error is None:
             return None
         
+        if isinstance(error, dict):
+            return self._extract_error_message_from_dict(error)
+        
         # Try to get error name/type
         error_name = getattr(error, 'name', None) or type(error).__name__
         
         # Try to get data.message or data.error
-        data = getattr(error, 'data', None)
+        data = _safe_get(error, 'data')
         if data:
-            message = getattr(data, 'message', None) or getattr(data, 'error', None)
+            message = _safe_get(data, 'message') or _safe_get(data, 'error')
             if message:
                 return f"{error_name}: {message}"
-            # Try dict access
-            if hasattr(data, 'get'):
-                message = data.get('message') or data.get('error')
-                if message:
-                    return f"{error_name}: {message}"
         
         # Try direct message attribute
-        message = getattr(error, 'message', None)
+        message = _safe_get(error, 'message')
         if message:
             return f"{error_name}: {message}"
         
@@ -533,7 +537,6 @@ class OpenCodeClient:
         # Fallback to string representation
         error_str = str(error)
         if error_str and error_str != str(type(error)):
-            # Truncate very long error messages
             if len(error_str) > 200:
                 error_str = error_str[:200] + "..."
             return f"{error_name}: {error_str}"
@@ -602,11 +605,12 @@ class OpenCodeClient:
             # Find the last assistant message (not user message)
             # messages_response is a list of SessionMessagesResponseItem
             # Each item has 'info' (Message with role) and 'parts' (List[Part])
+            # Note: info and parts may be dicts or objects depending on SDK version
             assistant_message = None
             for msg in reversed(messages_response):
-                info = getattr(msg, 'info', None)
+                info = _safe_get(msg, 'info')
                 if info:
-                    role = getattr(info, 'role', None)
+                    role = _safe_get(info, 'role')
                     if role == 'assistant':
                         assistant_message = msg
                         break
@@ -616,19 +620,19 @@ class OpenCodeClient:
                 return ""
             
             # Check for errors in the assistant message info
-            info = getattr(assistant_message, 'info', None)
+            info = _safe_get(assistant_message, 'info')
             if info:
                 self._check_response_for_error(info, f"session {session_id}")
             
             # Extract text from parts
             texts = []
-            parts = getattr(assistant_message, 'parts', None) or []
+            parts = _safe_get(assistant_message, 'parts') or []
             
             for part in parts:
                 # Check if it's a TextPart (type == 'text')
-                part_type = getattr(part, 'type', None)
+                part_type = _safe_get(part, 'type')
                 if part_type == 'text':
-                    text = getattr(part, 'text', '')
+                    text = _safe_get(part, 'text', '')
                     if text:
                         texts.append(text)
             
