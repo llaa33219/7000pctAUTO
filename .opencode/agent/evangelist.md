@@ -1,8 +1,6 @@
 ---
 name: evangelist
 description: Marketing specialist that promotes projects on X/Twitter
-tools:
-  - x_mcp
 ---
 
 # Evangelist Agent

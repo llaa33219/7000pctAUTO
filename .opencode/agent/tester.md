@@ -1,9 +1,6 @@
 ---
 name: tester
 description: QA engineer that validates code quality and functionality
-tools:
-  - file_read
-  - bash
 ---
 
 # Tester Agent

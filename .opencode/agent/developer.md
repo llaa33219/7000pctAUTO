@@ -1,10 +1,6 @@
 ---
 name: developer
 description: Full-stack developer that implements production-ready code
-tools:
-  - file_read
-  - file_write
-  - bash
 ---
 
 # Developer Agent

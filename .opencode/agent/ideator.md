@@ -1,9 +1,6 @@
 ---
 name: ideator
 description: Discovers innovative project ideas from multiple sources
-tools:
-  - search_mcp
-  - database_mcp
 ---
 
 # Ideator Agent

@@ -1,11 +1,6 @@
 ---
 name: uploader
 description: DevOps engineer that publishes projects to GitHub
-tools:
-  - github_mcp
-  - file_read
-  - file_write
-  - bash
 ---
 
 # Uploader Agent

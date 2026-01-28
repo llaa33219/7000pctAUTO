@@ -1,9 +1,6 @@
 ---
 name: planner
 description: Creates comprehensive implementation plans for projects
-tools:
-  - search_mcp
-  - web_reader
 ---
 
 # Planner Agent
