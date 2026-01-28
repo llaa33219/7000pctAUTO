@@ -174,7 +174,7 @@ class OpenCodeClient:
             client = await self._get_client()
             
             # Create session via OpenCode SDK
-            session = await client.session.create(model=f"{self.provider_id}/{self.model_id}")
+            session = await client.session.create()
             session_id = session.id
             
             # Store session metadata including agent name and prompt
