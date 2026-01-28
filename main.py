@@ -182,11 +182,11 @@ async def start_opencode_server() -> Optional[str]:
     
     # Determine port to use
     port = OPENCODE_SERVER_PORT
-    if settings.OPENCODE_BASE_URL:
+    if settings.OPENCODE_SERVER_URL:
         # Extract port from existing URL if configured
         try:
             from urllib.parse import urlparse
-            parsed = urlparse(settings.OPENCODE_BASE_URL)
+            parsed = urlparse(settings.OPENCODE_SERVER_URL)
             if parsed.port:
                 port = parsed.port
         except Exception:
@@ -496,7 +496,7 @@ async def lifespan(app: FastAPI):
         if opencode_url:
             # Set the server URL for the orchestrator to use
             # Update settings dynamically
-            settings.OPENCODE_BASE_URL = opencode_url
+            settings.OPENCODE_SERVER_URL = opencode_url
             logger.info(
                 "OpenCode server ready",
                 url=opencode_url,
@@ -504,7 +504,7 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning(
                 "OpenCode server not available, agent operations may fail",
-                fallback="Will attempt to use MINIMAX_API directly if configured",
+                fallback="Will attempt to use OPENCODE_API directly if configured",
             )
         
         # Start orchestrator in background if AUTO_START is enabled
@@ -522,7 +522,7 @@ async def lifespan(app: FastAPI):
             auto_start=settings.AUTO_START,
             github_configured=settings.is_github_configured,
             x_configured=settings.is_x_configured,
-            minimax_configured=settings.is_minimax_configured,
+            opencode_configured=settings.is_opencode_configured,
             opencode_available=opencode_url is not None,
         )
         
@@ -611,7 +611,7 @@ async def health_check():
             "debug": settings.DEBUG,
             "github_configured": settings.is_github_configured,
             "x_configured": settings.is_x_configured,
-            "minimax_configured": settings.is_minimax_configured,
+            "opencode_configured": settings.is_opencode_configured,
             "opencode_url": opencode_server_url,
         }
     }
@@ -644,7 +644,7 @@ async def get_status():
         "integrations": {
             "github": settings.is_github_configured,
             "x_twitter": settings.is_x_configured,
-            "minimax": settings.is_minimax_configured,
+            "minimax": settings.is_opencode_configured,
         },
     }
 

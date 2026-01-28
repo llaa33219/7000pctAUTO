@@ -17,14 +17,14 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     
-    # MiniMax AI
-    MINIMAX_API_KEY: str = Field(default="", description="MiniMax API key")
-    MINIMAX_API_BASE: str = Field(default="https://api.minimax.chat/v1", description="MiniMax API base URL")
-    MINIMAX_MODEL: str = Field(default="MiniMax-M2.1", description="MiniMax model to use")
+    # OpenCode AI Settings
+    OPENCODE_API_KEY: str = Field(default="", description="OpenCode/Provider API key (e.g., MiniMax API key)")
+    OPENCODE_API_BASE: str = Field(default="https://api.minimax.io/anthropic/v1", description="Provider API base URL")
+    OPENCODE_MODEL: str = Field(default="MiniMax-M2.1", description="Model to use")
+    OPENCODE_MAX_TOKENS: int = Field(default=16384, description="Maximum output tokens for AI responses")
     
-    # OpenCode
-    OPENCODE_BASE_URL: Optional[str] = Field(default=None, description="OpenCode API base URL")
-    OPENCODE_API_KEY: Optional[str] = Field(default=None, description="OpenCode API key for authentication")
+    # OpenCode Server
+    OPENCODE_SERVER_URL: Optional[str] = Field(default=None, description="OpenCode server URL (default: http://127.0.0.1:3000)")
     
     # GitHub
     GITHUB_TOKEN: str = Field(default="", description="GitHub Personal Access Token")
@@ -83,8 +83,8 @@ class Settings(BaseSettings):
         ])
     
     @property
-    def is_minimax_configured(self) -> bool:
-        return bool(self.MINIMAX_API_KEY)
+    def is_opencode_configured(self) -> bool:
+        return bool(self.OPENCODE_API_KEY)
 
 
 # Global settings instance

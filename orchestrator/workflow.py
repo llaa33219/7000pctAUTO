@@ -147,7 +147,7 @@ class WorkflowOrchestrator:
             error_msg = str(e)
             # Provide more helpful error messages for common issues
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "ideator", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
@@ -213,7 +213,7 @@ Output your plan in the specified JSON format."""
         except Exception as e:
             error_msg = str(e)
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "planner", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
@@ -269,7 +269,7 @@ Create all files, install dependencies, and ensure the project is complete and w
         except Exception as e:
             error_msg = str(e)
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "developer", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
@@ -338,7 +338,7 @@ Output your results in the specified JSON format with status "PASS" or "FAIL".""
         except Exception as e:
             error_msg = str(e)
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "tester", f"Error: {error_msg}", "error")
             return {"status": "FAIL", "error": error_msg}
@@ -393,7 +393,7 @@ Output the repository URL when complete."""
         except Exception as e:
             error_msg = str(e)
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "uploader", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(
@@ -453,7 +453,7 @@ Create a compelling tweet under 280 characters with emojis and hashtags."""
         except Exception as e:
             error_msg = str(e)
             if "API Error" in error_msg or "Auth" in error_msg:
-                error_msg = f"{error_msg} - Please check your MINIMAX_API_KEY environment variable"
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
             
             await self._log(project_id, "evangelist", f"Error: {error_msg}", "error")
             await self._emit_event(WorkflowEvent(

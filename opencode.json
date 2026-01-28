@@ -6,7 +6,7 @@
       "name": "MiniMax",
       "options": {
         "baseURL": "https://api.minimax.io/anthropic/v1",
-        "apiKey": "{env:MINIMAX_API_KEY}"
+        "apiKey": "{env:OPENCODE_API_KEY}"
       },
       "models": {
         "MiniMax-M2.1": {

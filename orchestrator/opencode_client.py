@@ -49,7 +49,7 @@ def _load_opencode_config() -> Dict[str, Any]:
                 "name": "MiniMax",
                 "options": {
                     "baseURL": "https://api.minimax.chat/v1",
-                    "apiKey": "{env:MINIMAX_API_KEY}"
+                    "apiKey": "{env:OPENCODE_API_KEY}"
                 },
                 "models": {
                     "MiniMax-M2.1": {
@@ -122,7 +122,7 @@ class OpenCodeClient:
     """
     
     def __init__(self, base_url: Optional[str] = None):
-        self.base_url = base_url or settings.OPENCODE_BASE_URL
+        self.base_url = base_url or settings.OPENCODE_SERVER_URL
         self._client: Optional[Any] = None
         self._sessions: Dict[str, Dict[str, Any]] = {}
         
@@ -237,7 +237,7 @@ class OpenCodeClient:
         try:
             client = await self._get_client()
             
-            logger.info(f"Sending message to session {session_id} (agent: {agent_name})")
+            logger.info(f"Sending message to session {session_id} (agent: {agent_name}, max_tokens: {settings.OPENCODE_MAX_TOKENS})")
             
             # Build message parts
             parts: List[Dict[str, Any]] = [
@@ -252,6 +252,7 @@ class OpenCodeClient:
             # - mode: specifies agent/mode to use (maps to agents in opencode.json)
             # - system: provides fallback system prompt if mode isn't recognized
             # - tools: enables MCP server tools defined in opencode.json
+            # - max_tokens: maximum output tokens (from OPENCODE_MAX_TOKENS env var)
             # OpenCode server loads agent config from opencode.json based on mode
             response = await client.session.chat(
                 session_id,
@@ -261,6 +262,7 @@ class OpenCodeClient:
                 mode=agent_name,  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
+                max_tokens=settings.OPENCODE_MAX_TOKENS,  # Set output token limit
             )
             
             # Check for errors in the response
@@ -532,7 +534,7 @@ class OpenCodeClient:
         
         # Check for common auth error patterns
         if 'Auth' in error_name or 'auth' in str(error).lower():
-            return f"{error_name}: Authentication failed - check your MINIMAX_API_KEY"
+            return f"{error_name}: Authentication failed - check your OPENCODE_API_KEY"
         
         # Fallback to string representation
         error_str = str(error)
@@ -572,7 +574,7 @@ class OpenCodeClient:
         
         # Check for auth errors
         if 'Auth' in error_name or 'ProviderAuth' in error_name:
-            return f"{error_name}: Authentication failed - check your MINIMAX_API_KEY"
+            return f"{error_name}: Authentication failed - check your OPENCODE_API_KEY"
         
         return error_name if error_name != 'Error' else None
 
@@ -789,6 +791,7 @@ class OpenCodeClient:
                 mode=session_data["agent"],  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
+                max_tokens=settings.OPENCODE_MAX_TOKENS,  # Set output token limit
             ) as response:
                 async for chunk in response.iter_text():
                     if chunk:
