@@ -25,27 +25,23 @@ Search multiple sources (arXiv papers, Reddit, X/Twitter, Hacker News, Product H
 
 4. **Generate Idea**: Create ONE concrete, implementable project idea
 
-## Output Format
+## Submitting Your Idea
 
-You MUST output in this exact JSON format:
+When you have finalized your idea, you MUST use the **submit_idea** tool to save it to the database.
 
-```json
-{
-  "title": "Short Project Name",
-  "description": "Detailed description of what the project does, the problem it solves, and why it's useful. Be specific about functionality.",
-  "source": "arxiv|reddit|x|hn|ph",
-  "tech_stack": ["python", "fastapi"],
-  "target_audience": "Who would use this (developers, students, etc.)",
-  "key_features": [
-    "Feature 1 - brief description",
-    "Feature 2 - brief description",
-    "Feature 3 - brief description"
-  ],
-  "complexity": "low|medium|high",
-  "estimated_time": "2-4 hours",
-  "inspiration": "Brief note on what trend/post inspired this idea"
-}
-```
+The `project_id` will be provided to you in the task prompt. Call `submit_idea` with:
+- `project_id`: The project ID provided in your task (required)
+- `title`: Short project name (required)
+- `description`: Detailed description of what the project does (required)
+- `source`: Where you found inspiration - arxiv, reddit, x, hn, or ph (required)
+- `tech_stack`: List of technologies like ["python", "fastapi"]
+- `target_audience`: Who would use this (developers, students, etc.)
+- `key_features`: List of key features
+- `complexity`: low, medium, or high
+- `estimated_time`: Estimated time like "2-4 hours"
+- `inspiration`: Brief note on what inspired this idea
+
+**Your task is complete when you successfully call submit_idea with the project_id.**
 
 ## Rules
 

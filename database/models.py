@@ -1,13 +1,14 @@
 """
 7000%AUTO Database Models
-SQLAlchemy 2.0 async models
+SQLAlchemy ORM models for projects, ideas, and logs
 """
 
 from datetime import datetime
-from enum import Enum as PyEnum
-from typing import Optional, List
-from sqlalchemy import String, Text, Boolean, Integer, DateTime, ForeignKey, Enum, JSON
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from enum import Enum
+from typing import Optional
+
+from sqlalchemy import String, Text, ForeignKey, JSON, Boolean, Integer, DateTime
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -15,16 +16,17 @@ class Base(DeclarativeBase):
     pass
 
 
-class IdeaSource(str, PyEnum):
-    """Sources for idea generation"""
+class IdeaSource(str, Enum):
+    """Sources for project ideas"""
     ARXIV = "arxiv"
     REDDIT = "reddit"
     X = "x"
     HN = "hn"
     PH = "ph"
+    SYSTEM = "system"
 
 
-class ProjectStatus(str, PyEnum):
+class ProjectStatus(str, Enum):
     """Project workflow status"""
     IDEATION = "ideation"
     PLANNING = "planning"
@@ -36,94 +38,51 @@ class ProjectStatus(str, PyEnum):
     FAILED = "failed"
 
 
-class LogType(str, PyEnum):
-    """Agent log types"""
+class LogType(str, Enum):
+    """Types of agent logs"""
     INFO = "info"
     ERROR = "error"
     OUTPUT = "output"
+    DEBUG = "debug"
 
 
 class Idea(Base):
     """Generated project ideas"""
     __tablename__ = "ideas"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String(500), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    source: Mapped[str] = mapped_column(String(50), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    used: Mapped[bool] = mapped_column(Boolean, default=False)
-    
-    # Relationships
-    projects: Mapped[List["Project"]] = relationship("Project", back_populates="idea")
-    
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "description": self.description,
-            "source": self.source,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "used": self.used
-        }
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(20))  # arxiv, reddit, x, hn, ph
+    used: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
 
 class Project(Base):
-    """Projects created from ideas"""
+    """Projects being developed"""
     __tablename__ = "projects"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    idea_id: Mapped[int] = mapped_column(Integer, ForeignKey("ideas.id"), nullable=False)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default=ProjectStatus.IDEATION.value)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default=ProjectStatus.IDEATION.value)
+    idea_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted idea data from MCP
+    plan_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     x_post_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    plan_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    dev_test_iterations: Mapped[int] = mapped_column(Integer, default=0)
+    dev_test_iterations: Mapped[int] = mapped_column(default=0)
     current_agent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    
-    # Relationships
-    idea: Mapped["Idea"] = relationship("Idea", back_populates="projects")
-    logs: Mapped[List["AgentLog"]] = relationship("AgentLog", back_populates="project", cascade="all, delete-orphan")
-    
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "idea_id": self.idea_id,
-            "name": self.name,
-            "status": self.status,
-            "github_url": self.github_url,
-            "x_post_url": self.x_post_url,
-            "plan_json": self.plan_json,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "dev_test_iterations": self.dev_test_iterations,
-            "current_agent": self.current_agent
-        }
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
 
 class AgentLog(Base):
-    """Logs from agent executions"""
+    """Logs from agent activities"""
     __tablename__ = "agent_logs"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
-    agent_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    message: Mapped[str] = mapped_column(Text, nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    agent_name: Mapped[str] = mapped_column(String(50))
+    message: Mapped[str] = mapped_column(Text)
     log_type: Mapped[str] = mapped_column(String(20), default=LogType.INFO.value)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    
-    # Relationships
-    project: Mapped["Project"] = relationship("Project", back_populates="logs")
-    
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "project_id": self.project_id,
-            "agent_name": self.agent_name,
-            "message": self.message,
-            "log_type": self.log_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None
-        }
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

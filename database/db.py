@@ -231,6 +231,7 @@ async def update_project_status(
     dev_test_iterations: Optional[int] = None,
     current_agent: Optional[str] = None,
     plan_json: Optional[dict] = None,
+    idea_json: Optional[dict] = None,
     session: Optional[AsyncSession] = None
 ) -> bool:
     """Update project status and optional fields"""
@@ -249,6 +250,8 @@ async def update_project_status(
                 project.current_agent = current_agent
             if plan_json is not None:
                 project.plan_json = plan_json
+            if idea_json is not None:
+                project.idea_json = idea_json
             return True
         return False
     
@@ -336,6 +339,72 @@ async def get_project_logs(
 # =============================================================================
 # Statistics
 # =============================================================================
+
+async def get_project_idea_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted idea JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.idea_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def get_project_plan_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted plan JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.plan_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def set_project_idea_json(project_id: int, idea_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the idea JSON for a project (called by MCP submit_idea)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.idea_json = idea_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
+
+async def set_project_plan_json(project_id: int, plan_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the plan JSON for a project (called by MCP submit_plan)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.plan_json = plan_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
 
 async def get_stats(session: Optional[AsyncSession] = None) -> dict:
     """Get database statistics"""

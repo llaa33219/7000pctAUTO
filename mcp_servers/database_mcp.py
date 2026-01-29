@@ -184,5 +184,137 @@ async def get_database_stats() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@mcp.tool()
+async def submit_idea(
+    project_id: int,
+    title: str,
+    description: str,
+    source: str,
+    tech_stack: list[str] = None,
+    target_audience: str = None,
+    key_features: list[str] = None,
+    complexity: str = None,
+    estimated_time: str = None,
+    inspiration: str = None
+) -> dict:
+    """
+    Submit a generated project idea. Use this tool to finalize and save your idea.
+    The idea will be saved directly to the database for the given project.
+    
+    Args:
+        project_id: The project ID to associate this idea with (required)
+        title: Short project name (required)
+        description: Detailed description of the project (required)
+        source: Source of inspiration - arxiv, reddit, x, hn, or ph (required)
+        tech_stack: List of technologies to use (e.g., ["python", "fastapi"])
+        target_audience: Who would use this project
+        key_features: List of key features
+        complexity: low, medium, or high
+        estimated_time: Estimated implementation time (e.g., "2-4 hours")
+        inspiration: Brief note on what inspired this idea
+    
+    Returns:
+        Dictionary with success status
+    """
+    try:
+        from database.db import set_project_idea_json
+        
+        # Build the complete idea dict
+        idea_data = {
+            "title": title,
+            "description": description,
+            "source": source,
+            "tech_stack": tech_stack or [],
+            "target_audience": target_audience or "",
+            "key_features": key_features or [],
+            "complexity": complexity or "medium",
+            "estimated_time": estimated_time or "",
+            "inspiration": inspiration or "",
+        }
+        
+        # Save to database
+        success = await set_project_idea_json(project_id, idea_data)
+        
+        if success:
+            logger.info(f"Idea submitted for project {project_id}: {title}")
+            return {"success": True, "message": f"Idea '{title}' saved successfully"}
+        else:
+            logger.error(f"Project {project_id} not found")
+            return {"success": False, "error": f"Project {project_id} not found"}
+    
+    except Exception as e:
+        logger.error(f"Error submitting idea: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def submit_plan(
+    project_id: int,
+    project_name: str,
+    overview: str,
+    display_name: str = None,
+    tech_stack: dict = None,
+    file_structure: dict = None,
+    features: list[dict] = None,
+    implementation_steps: list[dict] = None,
+    testing_strategy: dict = None,
+    configuration: dict = None,
+    error_handling: dict = None,
+    readme_sections: list[str] = None
+) -> dict:
+    """
+    Submit an implementation plan. Use this tool to finalize your project plan.
+    The plan will be saved directly to the database for the given project.
+    
+    Args:
+        project_id: The project ID to associate this plan with (required)
+        project_name: kebab-case project name (required)
+        overview: 2-3 sentence summary of what will be built (required)
+        display_name: Human readable project name
+        tech_stack: Technology stack details with language, runtime, framework, key_dependencies
+        file_structure: File structure with root_files and directories
+        features: List of features with name, priority, description, implementation_notes
+        implementation_steps: Ordered list of implementation steps
+        testing_strategy: Testing approach with unit_tests, integration_tests, test_files, test_commands
+        configuration: Config details with env_variables and config_files
+        error_handling: Error handling strategies
+        readme_sections: List of README section titles
+    
+    Returns:
+        Dictionary with success status
+    """
+    try:
+        from database.db import set_project_plan_json
+        
+        # Build the complete plan dict
+        plan_data = {
+            "project_name": project_name,
+            "display_name": display_name or project_name.replace("-", " ").title(),
+            "overview": overview,
+            "tech_stack": tech_stack or {},
+            "file_structure": file_structure or {},
+            "features": features or [],
+            "implementation_steps": implementation_steps or [],
+            "testing_strategy": testing_strategy or {},
+            "configuration": configuration or {},
+            "error_handling": error_handling or {},
+            "readme_sections": readme_sections or []
+        }
+        
+        # Save to database
+        success = await set_project_plan_json(project_id, plan_data)
+        
+        if success:
+            logger.info(f"Plan submitted for project {project_id}: {project_name}")
+            return {"success": True, "message": f"Plan '{project_name}' saved successfully"}
+        else:
+            logger.error(f"Project {project_id} not found")
+            return {"success": False, "error": f"Project {project_id} not found"}
+    
+    except Exception as e:
+        logger.error(f"Error submitting plan: {e}")
+        return {"success": False, "error": str(e)}
+
+
 if __name__ == "__main__":
     mcp.run()

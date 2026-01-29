@@ -6,7 +6,6 @@ Uses OpenCode SDK (opencode-ai) for AI agent interactions.
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator, List
 
@@ -289,10 +288,7 @@ class OpenCodeClient:
             
             logger.info(f"Received response for session {session_id} ({len(content)} chars)")
             
-            return {
-                "content": content,
-                "parsed": self.parse_json_from_response(content)
-            }
+            return {"content": content}
             
         except OpenCodeError:
             raise
@@ -612,36 +608,27 @@ class OpenCodeClient:
                 logger.warning(f"No messages found for session {session_id}")
                 return ""
             
-            # Find the last assistant message (not user message)
-            # messages_response is a list of SessionMessagesResponseItem
-            # Each item has 'info' (Message with role) and 'parts' (List[Part])
-            # Note: info and parts may be dicts or objects depending on SDK version
-            assistant_message = None
-            for msg in reversed(messages_response):
+            # Find the last assistant message
+            last_assistant_message = None
+            for msg in messages_response:
                 info = _safe_get(msg, 'info')
-                if info:
-                    role = _safe_get(info, 'role')
-                    if role == 'assistant':
-                        assistant_message = msg
-                        break
+                if info and _safe_get(info, 'role') == 'assistant':
+                    last_assistant_message = msg
             
-            if not assistant_message:
+            if not last_assistant_message:
                 logger.warning(f"No assistant message found for session {session_id}")
                 return ""
             
-            # Check for errors in the assistant message info
-            info = _safe_get(assistant_message, 'info')
+            # Check for errors
+            info = _safe_get(last_assistant_message, 'info')
             if info:
                 self._check_response_for_error(info, f"session {session_id}")
             
             # Extract text from parts
             texts = []
-            parts = _safe_get(assistant_message, 'parts') or []
-            
+            parts = _safe_get(last_assistant_message, 'parts') or []
             for part in parts:
-                # Check if it's a TextPart (type == 'text')
-                part_type = _safe_get(part, 'type')
-                if part_type == 'text':
+                if _safe_get(part, 'type') == 'text':
                     text = _safe_get(part, 'text', '')
                     if text:
                         texts.append(text)
@@ -650,33 +637,21 @@ class OpenCodeClient:
                 return '\n'.join(texts)
             
             # Fallback: try to extract from dict representation
-            if hasattr(assistant_message, 'model_dump'):
-                dump = assistant_message.model_dump()
-                
-                # Check for error in dumped data
-                info_dump = dump.get('info', {})
-                if isinstance(info_dump, dict) and info_dump.get('error'):
-                    error_msg = self._extract_error_message_from_dict(info_dump.get('error'))
-                    if error_msg:
-                        logger.error(f"API error in session {session_id}: {error_msg}")
-                        raise OpenCodeError(f"API Error: {error_msg}")
-                
+            if hasattr(last_assistant_message, 'model_dump'):
+                dump = last_assistant_message.model_dump()
                 parts_data = dump.get('parts', [])
-                fallback_texts = []
                 for part_data in parts_data:
                     if isinstance(part_data, dict) and part_data.get('type') == 'text':
                         text = part_data.get('text', '')
                         if text:
-                            fallback_texts.append(text)
-                if fallback_texts:
-                    return '\n'.join(fallback_texts)
+                            texts.append(text)
+                if texts:
+                    return '\n'.join(texts)
             
-            # If we got here with no text content, log a warning
             logger.warning(f"Session {session_id}: No text content found in assistant message")
             return ""
             
         except OpenCodeError:
-            # Re-raise OpenCodeError
             raise
         except Exception as e:
             logger.warning(f"Failed to fetch message content: {e}")
@@ -840,78 +815,3 @@ class OpenCodeClient:
         
         # Close the client
         await self._close_client()
-    
-    @staticmethod
-    def parse_json_from_response(content: str) -> Optional[Dict[str, Any]]:
-        """
-        Extract JSON from agent response.
-        
-        Tries multiple patterns to find and parse JSON:
-        1. JSON in code blocks (```json ... ``` or ``` ... ```)
-        2. JSON object directly in content ({ ... })
-        3. Entire content as JSON
-        
-        Args:
-            content: Response content string
-            
-        Returns:
-            Parsed JSON dict or None if no valid JSON found
-        """
-        if not content:
-            logger.warning("parse_json_from_response: Empty content received")
-            return None
-        
-        logger.debug(f"parse_json_from_response: Attempting to parse {len(content)} chars")
-        
-        # Strategy 1: Try to find JSON in code blocks (```json ... ``` or ``` ... ```)
-        # Use non-greedy matching to get the first code block
-        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
-        if json_match:
-            json_str = json_match.group(1).strip()
-            logger.debug(f"parse_json_from_response: Found code block ({len(json_str)} chars)")
-            try:
-                result = json.loads(json_str)
-                logger.debug("parse_json_from_response: Successfully parsed JSON from code block")
-                return result
-            except json.JSONDecodeError as e:
-                logger.warning(
-                    f"parse_json_from_response: Code block JSON parse failed: {e}. "
-                    f"JSON starts with: {json_str[:200]!r}... ends with: ...{json_str[-100:]!r}"
-                )
-        else:
-            logger.debug("parse_json_from_response: No code block found")
-        
-        # Strategy 2: Try to find JSON object directly in content
-        # Look for { ... } pattern (greedy to get the full object)
-        json_obj_match = re.search(r'\{[\s\S]*\}', content)
-        if json_obj_match:
-            json_str = json_obj_match.group(0)
-            logger.debug(f"parse_json_from_response: Found JSON object pattern ({len(json_str)} chars)")
-            try:
-                result = json.loads(json_str)
-                logger.debug("parse_json_from_response: Successfully parsed JSON from object pattern")
-                return result
-            except json.JSONDecodeError as e:
-                logger.warning(
-                    f"parse_json_from_response: Object pattern JSON parse failed: {e}. "
-                    f"JSON starts with: {json_str[:200]!r}... ends with: ...{json_str[-100:]!r}"
-                )
-        else:
-            logger.debug("parse_json_from_response: No JSON object pattern found")
-        
-        # Strategy 3: Try to parse the whole content as JSON
-        try:
-            result = json.loads(content)
-            logger.debug("parse_json_from_response: Successfully parsed entire content as JSON")
-            return result
-        except json.JSONDecodeError as e:
-            logger.warning(
-                f"parse_json_from_response: Full content JSON parse failed: {e}. "
-                f"Content starts with: {content[:200]!r}..."
-            )
-        
-        logger.error(
-            f"parse_json_from_response: All parsing strategies failed for content ({len(content)} chars). "
-            f"Content preview: {content[:500]!r}..."
-        )
-        return None
