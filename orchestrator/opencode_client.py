@@ -6,6 +6,7 @@ Uses OpenCode SDK (opencode-ai) for AI agent interactions.
 import asyncio
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator, List
 
