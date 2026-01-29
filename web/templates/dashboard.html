@@ -785,9 +785,19 @@
                 this.fetchInitialData();
             },
 
+            // Get base path for API calls (handles /dashboard mount)
+            getBasePath() {
+                const path = window.location.pathname;
+                // If we're at /dashboard or /dashboard/, use that as base
+                if (path.startsWith('/dashboard')) {
+                    return '/dashboard';
+                }
+                return '';
+            },
+
             async fetchInitialData() {
                 try {
-                    const response = await fetch('/api/status');
+                    const response = await fetch(this.getBasePath() + '/api/status');
                     const data = await response.json();
                     this.updateFromStatus(data);
                 } catch (e) {
@@ -803,7 +813,7 @@
                 console.log('📡 Connecting to SSE stream...');
                 this.updateConnectionStatus('connecting');
 
-                this.eventSource = new EventSource('/api/stream');
+                this.eventSource = new EventSource(this.getBasePath() + '/api/stream');
 
                 this.eventSource.onopen = () => {
                     console.log('✅ SSE connected');
