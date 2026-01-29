@@ -17,15 +17,21 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     
-    # OpenCode AI Settings (supports Anthropic-compatible and OpenAI-compatible APIs)
-    OPENCODE_API_KEY: str = Field(default="", description="API key for your AI provider")
-    OPENCODE_API_BASE: str = Field(default="https://api.minimax.io/anthropic/v1", description="API base URL")
-    OPENCODE_PROVIDER: str = Field(default="anthropic", description="API provider type: 'anthropic' or 'openai'")
-    OPENCODE_MODEL: str = Field(default="MiniMax-M2.1", description="Model name to use")
-    OPENCODE_MAX_TOKENS: int = Field(default=196608, description="Maximum output tokens for AI responses")
+    # OpenCode AI Settings (Required - no defaults)
+    # Users MUST set these environment variables:
+    #   OPENCODE_API_KEY   - API key for your AI provider
+    #   OPENCODE_API_BASE  - API base URL (e.g. https://api.minimax.io/anthropic/v1)
+    #   OPENCODE_SDK       - AI SDK npm package (e.g. @ai-sdk/anthropic, @ai-sdk/openai)
+    #   OPENCODE_MODEL     - Model name (e.g. MiniMax-M2.1, gpt-4o)
+    #   OPENCODE_MAX_TOKENS - Max output tokens (e.g. 196608)
+    OPENCODE_API_KEY: str = Field(default="", description="API key for your AI provider (REQUIRED)")
+    OPENCODE_API_BASE: str = Field(default="", description="API base URL (REQUIRED)")
+    OPENCODE_SDK: str = Field(default="", description="AI SDK npm package (REQUIRED, e.g. @ai-sdk/anthropic, @ai-sdk/openai)")
+    OPENCODE_MODEL: str = Field(default="", description="Model name to use (REQUIRED)")
+    OPENCODE_MAX_TOKENS: int = Field(default=0, description="Maximum output tokens for AI responses (REQUIRED)")
     
     # OpenCode Server
-    OPENCODE_SERVER_URL: Optional[str] = Field(default=None, description="OpenCode server URL (default: http://127.0.0.1:3000)")
+    OPENCODE_SERVER_URL: Optional[str] = Field(default=None, description="OpenCode server URL (default: http://127.0.0.1:18080)")
     
     # GitHub
     GITHUB_TOKEN: str = Field(default="", description="GitHub Personal Access Token")
@@ -85,7 +91,29 @@ class Settings(BaseSettings):
     
     @property
     def is_opencode_configured(self) -> bool:
-        return bool(self.OPENCODE_API_KEY)
+        """Check if all required OpenCode settings are configured"""
+        return all([
+            self.OPENCODE_API_KEY,
+            self.OPENCODE_API_BASE,
+            self.OPENCODE_SDK,
+            self.OPENCODE_MODEL,
+            self.OPENCODE_MAX_TOKENS > 0,
+        ])
+    
+    def get_missing_opencode_settings(self) -> list[str]:
+        """Return list of missing required OpenCode settings"""
+        missing = []
+        if not self.OPENCODE_API_KEY:
+            missing.append("OPENCODE_API_KEY")
+        if not self.OPENCODE_API_BASE:
+            missing.append("OPENCODE_API_BASE")
+        if not self.OPENCODE_SDK:
+            missing.append("OPENCODE_SDK")
+        if not self.OPENCODE_MODEL:
+            missing.append("OPENCODE_MODEL")
+        if self.OPENCODE_MAX_TOKENS <= 0:
+            missing.append("OPENCODE_MAX_TOKENS")
+        return missing
 
 
 # Global settings instance

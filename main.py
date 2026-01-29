@@ -20,12 +20,14 @@ import os
 os.environ.setdefault("OPENCODE_LOG", "warn")
 
 import asyncio
+import json
 import logging
 import signal
 import subprocess
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -141,6 +143,175 @@ OPENCODE_SERVER_PORT = 18080
 
 # Shutdown event for graceful termination
 shutdown_event = asyncio.Event()
+
+
+# =============================================================================
+# OpenCode Configuration Generation
+# =============================================================================
+
+def generate_opencode_config() -> None:
+    """
+    Generate opencode.json dynamically from environment variables.
+    
+    This ensures all configuration values are properly set from environment
+    variables. If required variables are missing, exits with a clear error.
+    
+    Required environment variables:
+    - OPENCODE_API_KEY: API key for the AI provider
+    - OPENCODE_API_BASE: API base URL
+    - OPENCODE_SDK: npm package (e.g. @ai-sdk/anthropic, @ai-sdk/openai)
+    - OPENCODE_MODEL: Model name to use
+    - OPENCODE_MAX_TOKENS: Maximum output tokens
+    """
+    # Check for required environment variables
+    missing = settings.get_missing_opencode_settings()
+    if missing:
+        logger.error(
+            "Missing required OpenCode environment variables",
+            missing=missing,
+            hint="Set these environment variables before starting the application",
+        )
+        logger.error(
+            "Example configuration:",
+            example={
+                "OPENCODE_API_KEY": "your-api-key",
+                "OPENCODE_API_BASE": "https://api.minimax.io/anthropic/v1",
+                "OPENCODE_SDK": "@ai-sdk/anthropic",
+                "OPENCODE_MODEL": "MiniMax-M2.1",
+                "OPENCODE_MAX_TOKENS": "196608",
+            }
+        )
+        sys.exit(1)
+    
+    # Extract provider name from SDK package (e.g. @ai-sdk/anthropic -> anthropic)
+    # This is used as the provider key in the config
+    sdk_parts = settings.OPENCODE_SDK.split("/")
+    provider_name = sdk_parts[-1] if sdk_parts else "custom"
+    
+    config = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            provider_name: {
+                "npm": settings.OPENCODE_SDK,
+                "name": provider_name.title(),
+                "options": {
+                    "baseURL": settings.OPENCODE_API_BASE,
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                },
+                "models": {
+                    settings.OPENCODE_MODEL: {
+                        "name": settings.OPENCODE_MODEL,
+                        "options": {
+                            "max_tokens": settings.OPENCODE_MAX_TOKENS
+                        }
+                    }
+                }
+            }
+        },
+        "model": f"{provider_name}/{settings.OPENCODE_MODEL}",
+        "agent": {
+            "ideator": {
+                "description": "Finds innovative project ideas from various sources",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/ideator.md}",
+                "tools": {
+                    "read": True,
+                    "grep": True,
+                    "glob": True,
+                    "bash": True
+                }
+            },
+            "planner": {
+                "description": "Creates detailed implementation plans",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/planner.md}",
+                "tools": {
+                    "read": True,
+                    "grep": True,
+                    "glob": True,
+                    "bash": True
+                }
+            },
+            "developer": {
+                "description": "Implements code based on plans",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/developer.md}",
+                "tools": {
+                    "read": True,
+                    "write": True,
+                    "edit": True,
+                    "bash": True,
+                    "grep": True,
+                    "glob": True
+                }
+            },
+            "tester": {
+                "description": "Tests and validates implementations",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/tester.md}",
+                "tools": {
+                    "read": True,
+                    "bash": True,
+                    "grep": True,
+                    "glob": True
+                }
+            },
+            "uploader": {
+                "description": "Uploads projects to GitHub",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/uploader.md}",
+                "tools": {
+                    "read": True,
+                    "write": True,
+                    "bash": True,
+                    "grep": True
+                }
+            },
+            "evangelist": {
+                "description": "Promotes projects on X/Twitter",
+                "mode": "primary",
+                "prompt": "{file:.opencode/agent/evangelist.md}",
+                "tools": {
+                    "read": True,
+                    "bash": True
+                }
+            }
+        },
+        "mcp": {
+            "search": {
+                "type": "local",
+                "command": ["python", "-m", "mcp_servers.search_mcp"],
+                "enabled": True
+            },
+            "github": {
+                "type": "local",
+                "command": ["python", "-m", "mcp_servers.github_mcp"],
+                "enabled": True
+            },
+            "x_api": {
+                "type": "local",
+                "command": ["python", "-m", "mcp_servers.x_mcp"],
+                "enabled": True
+            },
+            "database": {
+                "type": "local",
+                "command": ["python", "-m", "mcp_servers.database_mcp"],
+                "enabled": True
+            }
+        }
+    }
+    
+    # Write the config file
+    config_path = Path("opencode.json")
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    
+    logger.info(
+        "Generated opencode.json from environment variables",
+        sdk=settings.OPENCODE_SDK,
+        model=settings.OPENCODE_MODEL,
+        max_tokens=settings.OPENCODE_MAX_TOKENS,
+        base_url=settings.OPENCODE_API_BASE,
+    )
 
 
 # =============================================================================
@@ -490,6 +661,10 @@ async def lifespan(app: FastAPI):
             logger.warning("Web dashboard not available, skipping mount")
         except Exception as e:
             logger.warning(f"Failed to mount web dashboard: {e}")
+        
+        # Generate opencode.json from environment variables
+        # This ensures all config values are properly set without {env:...} syntax issues
+        generate_opencode_config()
         
         # Start OpenCode server
         opencode_url = await start_opencode_server()
