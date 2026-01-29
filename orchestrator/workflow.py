@@ -141,6 +141,13 @@ class WorkflowOrchestrator:
                 ))
                 return idea
             
+            # Log content preview for debugging when parsing fails
+            content_preview = content[:1000] if len(content) > 1000 else content
+            content_end = content[-500:] if len(content) > 500 else ""
+            logger.error(
+                f"Ideator JSON parse failed. Content length: {len(content)} chars. "
+                f"Preview: {content_preview!r}... End: ...{content_end!r}"
+            )
             raise Exception(f"Failed to parse idea from response (content length: {len(content)} chars)")
             
         except Exception as e:
@@ -208,6 +215,13 @@ Output your plan in the specified JSON format."""
                 ))
                 return plan
             
+            # Log content preview for debugging when parsing fails
+            content_preview = content[:1000] if len(content) > 1000 else content
+            content_end = content[-500:] if len(content) > 500 else ""
+            logger.error(
+                f"Planner JSON parse failed. Content length: {len(content)} chars. "
+                f"Preview: {content_preview!r}... End: ...{content_end!r}"
+            )
             raise Exception(f"Failed to parse plan from response (content length: {len(content)} chars)")
             
         except Exception as e:

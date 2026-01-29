@@ -858,29 +858,60 @@ class OpenCodeClient:
             Parsed JSON dict or None if no valid JSON found
         """
         if not content:
+            logger.warning("parse_json_from_response: Empty content received")
             return None
         
-        # Try to find JSON in code blocks (```json ... ``` or ``` ... ```)
+        logger.debug(f"parse_json_from_response: Attempting to parse {len(content)} chars")
+        
+        # Strategy 1: Try to find JSON in code blocks (```json ... ``` or ``` ... ```)
+        # Use non-greedy matching to get the first code block
         json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
         if json_match:
+            json_str = json_match.group(1).strip()
+            logger.debug(f"parse_json_from_response: Found code block ({len(json_str)} chars)")
             try:
-                return json.loads(json_match.group(1).strip())
-            except json.JSONDecodeError:
-                pass
+                result = json.loads(json_str)
+                logger.debug("parse_json_from_response: Successfully parsed JSON from code block")
+                return result
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"parse_json_from_response: Code block JSON parse failed: {e}. "
+                    f"JSON starts with: {json_str[:200]!r}... ends with: ...{json_str[-100:]!r}"
+                )
+        else:
+            logger.debug("parse_json_from_response: No code block found")
         
-        # Try to find JSON object directly in content
-        # Look for { ... } pattern
+        # Strategy 2: Try to find JSON object directly in content
+        # Look for { ... } pattern (greedy to get the full object)
         json_obj_match = re.search(r'\{[\s\S]*\}', content)
         if json_obj_match:
+            json_str = json_obj_match.group(0)
+            logger.debug(f"parse_json_from_response: Found JSON object pattern ({len(json_str)} chars)")
             try:
-                return json.loads(json_obj_match.group(0))
-            except json.JSONDecodeError:
-                pass
+                result = json.loads(json_str)
+                logger.debug("parse_json_from_response: Successfully parsed JSON from object pattern")
+                return result
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"parse_json_from_response: Object pattern JSON parse failed: {e}. "
+                    f"JSON starts with: {json_str[:200]!r}... ends with: ...{json_str[-100:]!r}"
+                )
+        else:
+            logger.debug("parse_json_from_response: No JSON object pattern found")
         
-        # Try to parse the whole content as JSON
+        # Strategy 3: Try to parse the whole content as JSON
         try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            pass
+            result = json.loads(content)
+            logger.debug("parse_json_from_response: Successfully parsed entire content as JSON")
+            return result
+        except json.JSONDecodeError as e:
+            logger.warning(
+                f"parse_json_from_response: Full content JSON parse failed: {e}. "
+                f"Content starts with: {content[:200]!r}..."
+            )
         
+        logger.error(
+            f"parse_json_from_response: All parsing strategies failed for content ({len(content)} chars). "
+            f"Content preview: {content[:500]!r}..."
+        )
         return None
