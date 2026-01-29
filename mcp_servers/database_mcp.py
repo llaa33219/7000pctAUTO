@@ -1,5 +1,4 @@
-"""
-Database MCP Server for 7000%AUTO
+"""Database MCP Server for 7000%AUTO
 Provides database operations for idea management
 """
 
@@ -12,6 +11,23 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("Database Server")
+
+# Database initialization flag for MCP server process
+_db_ready = False
+
+
+async def _init_db_if_needed():
+    """Initialize database if not already initialized. MCP servers run in separate processes."""
+    global _db_ready
+    if not _db_ready:
+        try:
+            from database.db import init_db
+            await init_db()
+            _db_ready = True
+            logger.info("Database initialized in MCP server")
+        except Exception as e:
+            logger.error(f"Failed to initialize database in MCP server: {e}")
+            raise
 
 
 @mcp.tool()
@@ -26,6 +42,7 @@ async def get_previous_ideas(limit: int = 50) -> dict:
         Dictionary with list of ideas
     """
     try:
+        await _init_db_if_needed()
         from database import get_db, Idea
         from sqlalchemy import select
         
@@ -66,6 +83,7 @@ async def check_idea_exists(title: str) -> dict:
         Dictionary with exists flag and similar ideas if found
     """
     try:
+        await _init_db_if_needed()
         from database import get_db, Idea
         from sqlalchemy import select, func
         
@@ -137,6 +155,7 @@ async def save_idea(title: str, description: str, source: str) -> dict:
         Dictionary with saved idea details
     """
     try:
+        await _init_db_if_needed()
         from database import create_idea
         
         idea = await create_idea(
@@ -170,6 +189,7 @@ async def get_database_stats() -> dict:
         Dictionary with database stats
     """
     try:
+        await _init_db_if_needed()
         from database import get_stats
         
         stats = await get_stats()
@@ -217,6 +237,7 @@ async def submit_idea(
         Dictionary with success status
     """
     try:
+        await _init_db_if_needed()
         from database.db import set_project_idea_json
         
         # Build the complete idea dict
@@ -284,6 +305,7 @@ async def submit_plan(
         Dictionary with success status
     """
     try:
+        await _init_db_if_needed()
         from database.db import set_project_plan_json
         
         # Build the complete plan dict
