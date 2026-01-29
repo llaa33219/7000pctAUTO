@@ -1,26 +1,44 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "minimax": {
+    "anthropic": {
       "npm": "@ai-sdk/anthropic",
-      "name": "MiniMax",
+      "name": "Anthropic Compatible",
       "options": {
-        "baseURL": "https://api.minimax.io/anthropic/v1",
+        "baseURL": "{env:OPENCODE_API_BASE}",
         "apiKey": "{env:OPENCODE_API_KEY}"
       },
       "models": {
-        "MiniMax-M2.1": {
-          "name": "MiniMax M2.1"
+        "*": {
+          "name": "Custom Model",
+          "options": {
+            "max_tokens": "{env:OPENCODE_MAX_TOKENS}"
+          }
+        }
+      }
+    },
+    "openai": {
+      "npm": "@ai-sdk/openai",
+      "name": "OpenAI Compatible",
+      "options": {
+        "baseURL": "{env:OPENCODE_API_BASE}",
+        "apiKey": "{env:OPENCODE_API_KEY}"
+      },
+      "models": {
+        "*": {
+          "name": "Custom Model",
+          "options": {
+            "max_tokens": "{env:OPENCODE_MAX_TOKENS}"
+          }
         }
       }
     }
   },
-  "model": "minimax/MiniMax-M2.1",
+  "model": "{env:OPENCODE_PROVIDER}/{env:OPENCODE_MODEL}",
   "agent": {
     "ideator": {
       "description": "Finds innovative project ideas from various sources",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/ideator.md}",
       "tools": {
         "read": true,
@@ -32,7 +50,6 @@
     "planner": {
       "description": "Creates detailed implementation plans",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/planner.md}",
       "tools": {
         "read": true,
@@ -44,7 +61,6 @@
     "developer": {
       "description": "Implements code based on plans",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/developer.md}",
       "tools": {
         "read": true,
@@ -58,7 +74,6 @@
     "tester": {
       "description": "Tests and validates implementations",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/tester.md}",
       "tools": {
         "read": true,
@@ -70,7 +85,6 @@
     "uploader": {
       "description": "Uploads projects to GitHub",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/uploader.md}",
       "tools": {
         "read": true,
@@ -82,7 +96,6 @@
     "evangelist": {
       "description": "Promotes projects on X/Twitter",
       "mode": "primary",
-      "model": "minimax/MiniMax-M2.1",
       "prompt": "{file:.opencode/agent/evangelist.md}",
       "tools": {
         "read": true,

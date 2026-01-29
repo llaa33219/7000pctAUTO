@@ -17,11 +17,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     
-    # OpenCode AI Settings
-    OPENCODE_API_KEY: str = Field(default="", description="OpenCode/Provider API key (e.g., MiniMax API key)")
-    OPENCODE_API_BASE: str = Field(default="https://api.minimax.io/anthropic/v1", description="Provider API base URL")
-    OPENCODE_MODEL: str = Field(default="MiniMax-M2.1", description="Model to use")
-    OPENCODE_MAX_TOKENS: int = Field(default=16384, description="Maximum output tokens for AI responses")
+    # OpenCode AI Settings (supports Anthropic-compatible and OpenAI-compatible APIs)
+    OPENCODE_API_KEY: str = Field(default="", description="API key for your AI provider")
+    OPENCODE_API_BASE: str = Field(default="https://api.minimax.io/anthropic/v1", description="API base URL")
+    OPENCODE_PROVIDER: str = Field(default="anthropic", description="API provider type: 'anthropic' or 'openai'")
+    OPENCODE_MODEL: str = Field(default="MiniMax-M2.1", description="Model name to use")
+    OPENCODE_MAX_TOKENS: int = Field(default=196608, description="Maximum output tokens for AI responses")
     
     # OpenCode Server
     OPENCODE_SERVER_URL: Optional[str] = Field(default=None, description="OpenCode server URL (default: http://127.0.0.1:3000)")

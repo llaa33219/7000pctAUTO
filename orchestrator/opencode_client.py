@@ -41,24 +41,38 @@ def _load_opencode_config() -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to load opencode.json: {e}")
     
-    # Default configuration with proper provider object format
+    # Default configuration with both Anthropic and OpenAI providers
+    # OPENCODE_PROVIDER determines which one is used
     _OPENCODE_CONFIG = {
         "provider": {
-            "minimax": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "MiniMax",
+            "anthropic": {
+                "npm": "@ai-sdk/anthropic",
+                "name": "Anthropic Compatible",
                 "options": {
-                    "baseURL": "https://api.minimax.chat/v1",
+                    "baseURL": settings.OPENCODE_API_BASE,
                     "apiKey": "{env:OPENCODE_API_KEY}"
                 },
                 "models": {
-                    "MiniMax-M2.1": {
-                        "name": "MiniMax M2.1"
+                    "*": {
+                        "name": "Custom Model"
+                    }
+                }
+            },
+            "openai": {
+                "npm": "@ai-sdk/openai",
+                "name": "OpenAI Compatible",
+                "options": {
+                    "baseURL": settings.OPENCODE_API_BASE,
+                    "apiKey": "{env:OPENCODE_API_KEY}"
+                },
+                "models": {
+                    "*": {
+                        "name": "Custom Model"
                     }
                 }
             }
         },
-        "model": "minimax/MiniMax-M2.1"
+        "model": f"{settings.OPENCODE_PROVIDER}/{settings.OPENCODE_MODEL}"
     }
     return _OPENCODE_CONFIG
 
@@ -130,17 +144,13 @@ class OpenCodeClient:
         config = _load_opencode_config()
         
         # Extract provider_id and model_id from config
-        # model format is "provider/model" (e.g., "minimax/MiniMax-M2.1")
-        model_str = config.get("model", "minimax/MiniMax-M2.1")
+        # model format is "provider/model" (e.g., "anthropic/MiniMax-M2.1", "openai/gpt-4o")
+        model_str = config.get("model", f"{settings.OPENCODE_PROVIDER}/{settings.OPENCODE_MODEL}")
         if "/" in model_str:
             self.provider_id, self.model_id = model_str.split("/", 1)
         else:
-            # Fallback: get first provider from provider object, or default to minimax
-            provider_config = config.get("provider", {})
-            if isinstance(provider_config, dict) and provider_config:
-                self.provider_id = next(iter(provider_config.keys()))
-            else:
-                self.provider_id = "minimax"
+            # Fallback: use OPENCODE_PROVIDER setting, or default to anthropic
+            self.provider_id = settings.OPENCODE_PROVIDER or "anthropic"
             self.model_id = model_str
     
     async def _get_client(self):
@@ -237,7 +247,7 @@ class OpenCodeClient:
         try:
             client = await self._get_client()
             
-            logger.info(f"Sending message to session {session_id} (agent: {agent_name}, max_tokens: {settings.OPENCODE_MAX_TOKENS})")
+            logger.info(f"Sending message to session {session_id} (agent: {agent_name})")
             
             # Build message parts
             parts: List[Dict[str, Any]] = [
@@ -252,7 +262,7 @@ class OpenCodeClient:
             # - mode: specifies agent/mode to use (maps to agents in opencode.json)
             # - system: provides fallback system prompt if mode isn't recognized
             # - tools: enables MCP server tools defined in opencode.json
-            # - extra_body: additional params including max_tokens for output limit
+            # - max_tokens is configured in opencode.json model options
             # OpenCode server loads agent config from opencode.json based on mode
             response = await client.session.chat(
                 session_id,
@@ -262,7 +272,6 @@ class OpenCodeClient:
                 mode=agent_name,  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
-                extra_body={"max_tokens": settings.OPENCODE_MAX_TOKENS},  # Set output token limit via extra_body
             )
             
             # Check for errors in the response
@@ -783,6 +792,7 @@ class OpenCodeClient:
             tools: Dict[str, bool] = {"*": True}
             
             # Use streaming response with mode parameter
+            # max_tokens is configured in opencode.json model options
             async with client.session.with_streaming_response.chat(
                 session_id,
                 model_id=self.model_id,
@@ -791,7 +801,6 @@ class OpenCodeClient:
                 mode=session_data["agent"],  # Specify agent mode from opencode.json
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
-                extra_body={"max_tokens": settings.OPENCODE_MAX_TOKENS},  # Set output token limit via extra_body
             ) as response:
                 async for chunk in response.iter_text():
                     if chunk:
