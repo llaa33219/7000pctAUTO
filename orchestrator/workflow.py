@@ -79,7 +79,8 @@ class WorkflowOrchestrator:
             self._event_listeners.remove(listener)
     
     async def _emit_event(self, event: WorkflowEvent):
-        """Emit event to all listeners"""
+        """Emit event to all listeners and web dashboard"""
+        # Emit to local listeners
         for listener in self._event_listeners:
             try:
                 if asyncio.iscoroutinefunction(listener):
@@ -88,6 +89,20 @@ class WorkflowOrchestrator:
                     listener(event)
             except Exception as e:
                 logger.error(f"Event listener error: {e}")
+        
+        # Emit to web dashboard SSE broadcaster
+        try:
+            from web.app import event_broadcaster
+            await event_broadcaster.broadcast({
+                "type": event.type.value,
+                "agent": event.agent,
+                "message": event.message,
+                "data": event.data,
+            })
+        except ImportError:
+            pass  # Web module not available
+        except Exception as e:
+            logger.debug(f"Web event broadcast error: {e}")
     
     async def _log(self, project_id: int, agent: str, message: str, log_type: str = "info"):
         """Log agent activity to database and emit event"""
@@ -97,11 +112,12 @@ class WorkflowOrchestrator:
         except Exception as e:
             logger.error(f"Failed to log: {e}")
         
+        # Emit workflow event
         await self._emit_event(WorkflowEvent(
             type=WorkflowEventType.LOG,
             agent=agent,
             message=message,
-            data={"log_type": log_type}
+            data={"log_type": log_type, "project_id": project_id}
         ))
     
     async def run_ideator(self, project_id: int) -> Optional[Dict[str, Any]]:

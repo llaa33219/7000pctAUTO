@@ -4,6 +4,6 @@
 Read-only web interface for monitoring the autonomous AI system.
 """
 
-from web.app import app, dashboard_app
+from web.app import app, event_broadcaster, broadcast_event
 
-__all__ = ["app", "dashboard_app"]
+__all__ = ["app", "event_broadcaster", "broadcast_event"]

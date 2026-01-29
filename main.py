@@ -659,7 +659,7 @@ async def lifespan(app: FastAPI):
         
         # Mount web dashboard AFTER database is initialized
         try:
-            from web.app import dashboard_app
+            from web.app import app as dashboard_app
             app.mount("/dashboard", dashboard_app)
             logger.info("Web dashboard mounted at /dashboard")
         except ImportError:
@@ -754,17 +754,9 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Root endpoint with application info."""
-    return {
-        "name": settings.APP_NAME,
-        "description": "Autonomous AI System with 6 Orchestrated Agents",
-        "version": "1.0.0",
-        "endpoints": {
-            "health": "/health",
-            "docs": "/docs" if settings.DEBUG else None,
-        },
-        "status": "running",
-    }
+    """Redirect to dashboard."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/dashboard")
 
 
 @app.get("/health")

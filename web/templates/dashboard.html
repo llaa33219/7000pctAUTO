@@ -5,27 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>7000%AUTO | AI Automation Dashboard</title>
     <style>
-        /* CSS Variables */
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-tertiary: #1a1a25;
-            --bg-card: #15151f;
-            --border-color: #2a2a3a;
-            --text-primary: #e0e0e0;
-            --text-secondary: #888899;
-            --text-muted: #555566;
-            --accent-primary: #00ff88;
-            --accent-secondary: #00ccff;
-            --accent-warning: #ffcc00;
-            --accent-error: #ff4455;
-            --accent-purple: #aa55ff;
-            --glow-green: 0 0 20px rgba(0, 255, 136, 0.3);
-            --glow-blue: 0 0 20px rgba(0, 204, 255, 0.3);
-            --glow-red: 0 0 20px rgba(255, 68, 85, 0.3);
+            --bg-dark: #0d1117;
+            --bg-card: #161b22;
+            --bg-card-hover: #1c2129;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #484f58;
+            --accent-green: #3fb950;
+            --accent-blue: #58a6ff;
+            --accent-purple: #a371f7;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-cyan: #39c5cf;
+            --glow-green: rgba(63, 185, 80, 0.4);
+            --glow-blue: rgba(88, 166, 255, 0.4);
         }
 
-        /* Reset & Base */
         * {
             margin: 0;
             padding: 0;
@@ -33,110 +30,100 @@
         }
 
         body {
-            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
-            background: var(--bg-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-dark);
             color: var(--text-primary);
             min-height: 100vh;
-            overflow-x: hidden;
+            line-height: 1.5;
         }
 
-        /* Scrollbar */
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
+            background: var(--bg-dark);
         }
 
         ::-webkit-scrollbar-thumb {
-            background: var(--border-color);
+            background: var(--border);
             border-radius: 4px;
         }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-muted);
-        }
-
-        /* Layout */
-        .app-container {
-            display: grid;
-            grid-template-columns: 1fr 320px;
-            grid-template-rows: auto 1fr;
-            min-height: 100vh;
-            gap: 1px;
-            background: var(--border-color);
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
         }
 
         /* Header */
         .header {
-            grid-column: 1 / -1;
-            background: var(--bg-secondary);
-            padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
         }
 
         .logo {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 16px;
         }
 
         .logo-text {
-            font-size: 1.5rem;
-            font-weight: bold;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            text-shadow: var(--glow-green);
         }
 
-        .logo-version {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            padding: 0.25rem 0.5rem;
-            background: var(--bg-tertiary);
-            border-radius: 4px;
+        .logo-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text-secondary);
         }
 
-        .status-indicators {
+        .status-group {
             display: flex;
-            gap: 1.5rem;
+            gap: 24px;
             align-items: center;
         }
 
-        .status-indicator {
+        .status-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            font-size: 0.85rem;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
         }
 
         .status-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.running {
+            background: var(--accent-green);
+            box-shadow: 0 0 12px var(--glow-green);
             animation: pulse 2s infinite;
         }
 
-        .status-dot.active {
-            background: var(--accent-primary);
-            box-shadow: var(--glow-green);
-        }
-
-        .status-dot.inactive {
-            background: var(--text-muted);
-            animation: none;
+        .status-dot.idle {
+            background: var(--accent-yellow);
         }
 
         .status-dot.error {
-            background: var(--accent-error);
-            box-shadow: var(--glow-red);
+            background: var(--accent-red);
         }
 
         @keyframes pulse {
@@ -144,427 +131,395 @@
             50% { opacity: 0.5; }
         }
 
-        /* Main Content */
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 24px;
+        }
+
         .main-content {
-            background: var(--bg-primary);
-            padding: 1.5rem;
-            overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 24px;
         }
 
         /* Cards */
         .card {
             background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
             overflow: hidden;
         }
 
         .card-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg-secondary);
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
         }
 
         .card-title {
-            font-size: 0.9rem;
+            font-size: 14px;
             font-weight: 600;
             color: var(--text-primary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title-icon {
+            font-size: 16px;
         }
 
         .card-badge {
-            font-size: 0.75rem;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            background: var(--bg-tertiary);
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: var(--bg-dark);
             color: var(--text-secondary);
         }
 
         .card-badge.active {
-            background: rgba(0, 255, 136, 0.15);
-            color: var(--accent-primary);
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--accent-green);
         }
 
         .card-body {
-            padding: 1.25rem;
+            padding: 20px;
         }
 
         /* Current Project */
         .project-info {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 1rem;
-            align-items: start;
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .project-info.has-project {
+            text-align: left;
         }
 
         .project-name {
-            font-size: 1.25rem;
+            font-size: 20px;
             font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
+            margin-bottom: 12px;
         }
 
-        .project-status {
+        .project-status-badge {
             display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.35rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            text-transform: capitalize;
         }
 
-        .project-status.pending { background: rgba(136, 136, 153, 0.2); color: var(--text-secondary); }
-        .project-status.ideating { background: rgba(170, 85, 255, 0.2); color: var(--accent-purple); }
-        .project-status.planning { background: rgba(0, 204, 255, 0.2); color: var(--accent-secondary); }
-        .project-status.developing { background: rgba(255, 204, 0, 0.2); color: var(--accent-warning); }
-        .project-status.testing { background: rgba(255, 136, 0, 0.2); color: #ff8800; }
-        .project-status.uploading { background: rgba(0, 255, 136, 0.2); color: var(--accent-primary); }
-        .project-status.evangelizing { background: rgba(255, 68, 136, 0.2); color: #ff4488; }
-        .project-status.completed { background: rgba(0, 255, 136, 0.3); color: var(--accent-primary); }
-        .project-status.failed { background: rgba(255, 68, 85, 0.2); color: var(--accent-error); }
+        .project-status-badge.ideation { background: rgba(163, 113, 247, 0.15); color: var(--accent-purple); }
+        .project-status-badge.planning { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); }
+        .project-status-badge.development { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+        .project-status-badge.testing { background: rgba(255, 166, 87, 0.15); color: #ffa657; }
+        .project-status-badge.uploading { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .project-status-badge.promoting { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+        .project-status-badge.completed { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
 
         .project-meta {
-            font-size: 0.8rem;
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .no-project {
             color: var(--text-muted);
-            margin-top: 0.5rem;
+            font-size: 14px;
+        }
+
+        .no-project-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
         }
 
         /* Agent Pipeline */
-        .pipeline-container {
-            padding: 1rem 0;
-        }
-
         .pipeline {
             display: flex;
+            align-items: center;
             justify-content: space-between;
+            padding: 24px 16px;
             position: relative;
-            padding: 0 1rem;
         }
 
         .pipeline::before {
             content: '';
             position: absolute;
             top: 50%;
-            left: 2rem;
-            right: 2rem;
-            height: 2px;
-            background: var(--border-color);
+            left: 48px;
+            right: 48px;
+            height: 3px;
+            background: var(--border);
             transform: translateY(-50%);
             z-index: 0;
+            border-radius: 2px;
         }
 
         .pipeline-progress {
             position: absolute;
             top: 50%;
-            left: 2rem;
-            height: 2px;
-            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            left: 48px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
             transform: translateY(-50%);
             z-index: 1;
             transition: width 0.5s ease;
-            box-shadow: var(--glow-green);
+            border-radius: 2px;
+            box-shadow: 0 0 10px var(--glow-green);
         }
 
         .agent-node {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 0.5rem;
+            gap: 10px;
             position: relative;
             z-index: 2;
         }
 
         .agent-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: var(--bg-secondary);
-            border: 2px solid var(--border-color);
+            width: 52px;
+            height: 52px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.25rem;
+            border-radius: 50%;
+            background: var(--bg-dark);
+            border: 3px solid var(--border);
+            font-size: 22px;
             transition: all 0.3s ease;
         }
 
         .agent-node.completed .agent-icon {
-            border-color: var(--accent-primary);
-            background: rgba(0, 255, 136, 0.1);
+            border-color: var(--accent-green);
+            background: rgba(63, 185, 80, 0.1);
         }
 
         .agent-node.active .agent-icon {
-            border-color: var(--accent-secondary);
-            background: rgba(0, 204, 255, 0.15);
-            box-shadow: var(--glow-blue);
-            animation: agent-pulse 1.5s infinite;
+            border-color: var(--accent-blue);
+            background: rgba(88, 166, 255, 0.15);
+            box-shadow: 0 0 20px var(--glow-blue);
+            animation: agent-active 1.5s infinite;
         }
 
         .agent-node.pending .agent-icon {
-            opacity: 0.5;
+            opacity: 0.4;
         }
 
-        @keyframes agent-pulse {
-            0%, 100% { 
-                transform: scale(1);
-                box-shadow: 0 0 20px rgba(0, 204, 255, 0.3);
-            }
-            50% { 
-                transform: scale(1.1);
-                box-shadow: 0 0 30px rgba(0, 204, 255, 0.5);
-            }
+        @keyframes agent-active {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
         }
 
         .agent-label {
-            font-size: 0.7rem;
+            font-size: 11px;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: var(--text-muted);
-            text-align: center;
         }
 
-        .agent-node.completed .agent-label {
-            color: var(--accent-primary);
-        }
-
-        .agent-node.active .agent-label {
-            color: var(--accent-secondary);
-            font-weight: 600;
-        }
+        .agent-node.completed .agent-label { color: var(--accent-green); }
+        .agent-node.active .agent-label { color: var(--accent-blue); font-weight: 600; }
 
         /* Iteration Counter */
-        .iteration-counter {
+        .iteration-box {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 1rem;
-            padding: 1rem;
-            background: var(--bg-tertiary);
+            gap: 16px;
+            padding: 16px;
+            background: var(--bg-dark);
             border-radius: 8px;
-            margin-top: 1rem;
+            margin-top: 16px;
         }
 
         .iteration-label {
-            font-size: 0.8rem;
+            font-size: 13px;
             color: var(--text-secondary);
         }
 
         .iteration-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--accent-warning);
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-yellow);
             font-variant-numeric: tabular-nums;
         }
 
         /* Log Stream */
         .log-container {
             flex: 1;
-            min-height: 300px;
             display: flex;
             flex-direction: column;
+            min-height: 400px;
         }
 
         .log-stream {
             flex: 1;
-            background: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            padding: 1rem;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 8px;
             overflow-y: auto;
-            font-size: 0.8rem;
-            line-height: 1.6;
-            max-height: 400px;
+            max-height: 500px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.8;
         }
 
         .log-entry {
             display: flex;
-            gap: 0.75rem;
-            padding: 0.25rem 0;
-            border-bottom: 1px solid rgba(42, 42, 58, 0.5);
-            animation: log-fade-in 0.3s ease;
+            gap: 12px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            animation: log-slide 0.3s ease;
         }
 
-        @keyframes log-fade-in {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .log-entry:hover {
+            background: var(--bg-card-hover);
+        }
+
+        @keyframes log-slide {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
         }
 
         .log-time {
             color: var(--text-muted);
-            font-size: 0.75rem;
             white-space: nowrap;
+            min-width: 80px;
         }
 
         .log-agent {
             color: var(--accent-purple);
             font-weight: 600;
-            min-width: 80px;
+            min-width: 90px;
         }
 
         .log-message {
-            flex: 1;
+            color: var(--text-primary);
             word-break: break-word;
         }
 
-        .log-entry.info .log-message { color: var(--accent-primary); }
-        .log-entry.error .log-message { color: var(--accent-error); }
-        .log-entry.output .log-message { color: var(--accent-secondary); }
-        .log-entry.warning .log-message { color: var(--accent-warning); }
+        .log-entry.info .log-message { color: var(--accent-green); }
+        .log-entry.error .log-message { color: var(--accent-red); }
+        .log-entry.output .log-message { color: var(--accent-cyan); }
+        .log-entry.debug .log-message { color: var(--text-secondary); }
 
         .log-empty {
-            color: var(--text-muted);
             text-align: center;
-            padding: 2rem;
-            font-style: italic;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        .log-empty-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
         }
 
         /* Sidebar */
         .sidebar {
-            background: var(--bg-secondary);
-            padding: 1.5rem;
-            overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 24px;
         }
 
-        /* Stats Grid */
+        /* Stats */
         .stats-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 1rem;
+            gap: 12px;
         }
 
         .stat-item {
-            background: var(--bg-tertiary);
-            padding: 1rem;
+            background: var(--bg-dark);
+            padding: 16px;
             border-radius: 8px;
             text-align: center;
-            transition: transform 0.2s ease;
-        }
-
-        .stat-item:hover {
-            transform: translateY(-2px);
         }
 
         .stat-value {
-            font-size: 1.75rem;
-            font-weight: bold;
-            color: var(--accent-primary);
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent-green);
             font-variant-numeric: tabular-nums;
         }
 
-        .stat-value.secondary { color: var(--accent-secondary); }
-        .stat-value.warning { color: var(--accent-warning); }
+        .stat-value.blue { color: var(--accent-blue); }
         .stat-value.purple { color: var(--accent-purple); }
+        .stat-value.yellow { color: var(--accent-yellow); }
 
         .stat-label {
-            font-size: 0.7rem;
+            font-size: 11px;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-top: 0.25rem;
+            margin-top: 4px;
         }
 
-        /* Projects List */
-        .projects-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            max-height: 350px;
+        /* Agent Output Card */
+        .agent-output {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 200px;
+            max-height: 400px;
             overflow-y: auto;
         }
 
-        .project-item {
-            background: var(--bg-tertiary);
-            padding: 0.875rem;
-            border-radius: 6px;
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
-            cursor: pointer;
-        }
-
-        .project-item:hover {
-            border-color: var(--border-color);
-            background: var(--bg-card);
-        }
-
-        .project-item-header {
+        .agent-output-header {
             display: flex;
-            justify-content: space-between;
-            align-items: start;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
         }
 
-        .project-item-name {
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: var(--text-primary);
+        .agent-output-icon {
+            font-size: 20px;
+        }
+
+        .agent-output-name {
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .agent-output-status {
+            margin-left: auto;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .agent-output-content {
+            font-size: 13px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
             word-break: break-word;
         }
 
-        .project-item-status {
-            font-size: 0.65rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 3px;
-            text-transform: uppercase;
-            white-space: nowrap;
-        }
-
-        .project-item-link {
-            display: flex;
-            align-items: center;
-            gap: 0.35rem;
-            font-size: 0.75rem;
-            color: var(--accent-secondary);
-            text-decoration: none;
-            margin-top: 0.5rem;
-            transition: color 0.2s ease;
-        }
-
-        .project-item-link:hover {
-            color: var(--text-primary);
-        }
-
-        .project-item-date {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-        }
-
-        /* No Data States */
-        .no-data {
+        .agent-output-empty {
             text-align: center;
-            padding: 2rem;
             color: var(--text-muted);
-        }
-
-        .no-data-icon {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
+            padding: 40px 0;
         }
 
         /* Responsive */
         @media (max-width: 1024px) {
-            .app-container {
+            .grid {
                 grid-template-columns: 1fr;
-            }
-
-            .sidebar {
-                order: -1;
             }
 
             .pipeline {
                 flex-wrap: wrap;
-                gap: 1rem;
+                gap: 16px;
                 justify-content: center;
             }
 
@@ -574,14 +529,17 @@
             }
         }
 
-        @media (max-width: 640px) {
-            .header {
-                flex-direction: column;
-                gap: 1rem;
-                padding: 1rem;
+        @media (max-width: 600px) {
+            .container {
+                padding: 16px;
             }
 
-            .status-indicators {
+            .header {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .status-group {
                 flex-wrap: wrap;
                 justify-content: center;
             }
@@ -591,156 +549,101 @@
             }
         }
 
-        /* Animations */
-        .fade-in {
-            animation: fadeIn 0.5s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .slide-up {
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Matrix rain effect in background */
-        .matrix-bg {
+        /* Connection Status */
+        .connection-status {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: -1;
-            opacity: 0.03;
-            background: 
-                linear-gradient(var(--bg-primary) 50%, transparent 50%),
-                repeating-linear-gradient(
-                    90deg,
-                    var(--accent-primary) 0px,
-                    var(--accent-primary) 1px,
-                    transparent 1px,
-                    transparent 30px
-                );
-            background-size: 100% 4px, 30px 100%;
-            animation: matrix-scroll 20s linear infinite;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            z-index: 1000;
         }
 
-        @keyframes matrix-scroll {
-            0% { background-position: 0 0, 0 0; }
-            100% { background-position: 0 1000px, 0 0; }
+        .connection-status.connected {
+            border-color: var(--accent-green);
         }
 
-        /* Glitch effect for title */
-        .glitch {
-            position: relative;
+        .connection-status.disconnected {
+            border-color: var(--accent-red);
         }
 
-        .glitch::before,
-        .glitch::after {
-            content: attr(data-text);
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
         }
 
-        .glitch::before {
-            animation: glitch-1 2s infinite linear alternate-reverse;
-            clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background: linear-gradient(135deg, var(--accent-error), var(--accent-primary));
-            background-clip: text;
+        .connection-status.connected .connection-dot {
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
         }
 
-        .glitch::after {
-            animation: glitch-2 3s infinite linear alternate-reverse;
-            clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background: linear-gradient(135deg, var(--accent-secondary), var(--accent-purple));
-            background-clip: text;
-        }
-
-        @keyframes glitch-1 {
-            0%, 100% { transform: translateX(0); }
-            20% { transform: translateX(-2px); }
-            40% { transform: translateX(2px); }
-            60% { transform: translateX(-1px); }
-            80% { transform: translateX(1px); }
-        }
-
-        @keyframes glitch-2 {
-            0%, 100% { transform: translateX(0); }
-            20% { transform: translateX(2px); }
-            40% { transform: translateX(-2px); }
-            60% { transform: translateX(1px); }
-            80% { transform: translateX(-1px); }
+        .connection-status.disconnected .connection-dot {
+            background: var(--accent-red);
         }
     </style>
 </head>
 <body>
-    <div class="matrix-bg"></div>
-    
-    <div class="app-container">
+    <div class="container">
         <!-- Header -->
         <header class="header">
             <div class="logo">
-                <span class="logo-text glitch" data-text="7000%AUTO">7000%AUTO</span>
-                <span class="logo-version">v1.0.0</span>
+                <span class="logo-text">🤖 7000%AUTO</span>
+                <span class="logo-badge">Dashboard v1.0</span>
             </div>
-            <div class="status-indicators">
-                <div class="status-indicator">
-                    <div class="status-dot" id="orchestrator-status"></div>
-                    <span id="orchestrator-label">Orchestrator</span>
+            <div class="status-group">
+                <div class="status-item">
+                    <div class="status-dot" id="orchestrator-dot"></div>
+                    <span id="orchestrator-status">Connecting...</span>
                 </div>
-                <div class="status-indicator">
-                    <div class="status-dot" id="db-status"></div>
-                    <span>Database</span>
-                </div>
-                <div class="status-indicator" style="color: var(--text-muted);">
-                    <span id="last-update">Last update: --</span>
+                <div class="status-item">
+                    <span id="last-update">--</span>
                 </div>
             </div>
         </header>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Current Project Card -->
-            <div class="card slide-up">
-                <div class="card-header">
-                    <span class="card-title">📡 Current Project</span>
-                    <span class="card-badge" id="project-badge">No Active Project</span>
-                </div>
-                <div class="card-body">
-                    <div class="project-info" id="current-project">
-                        <div class="no-data">
-                            <div class="no-data-icon">🔄</div>
-                            <div>Waiting for project...</div>
+        <!-- Main Grid -->
+        <div class="grid">
+            <main class="main-content">
+                <!-- Current Project -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <span class="card-title-icon">📡</span>
+                            Current Project
+                        </span>
+                        <span class="card-badge" id="project-badge">No Project</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="project-info" id="project-info">
+                            <div class="no-project">
+                                <div class="no-project-icon">⏳</div>
+                                <div>Waiting for a project to start...</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Agent Pipeline Card -->
-            <div class="card slide-up" style="animation-delay: 0.1s;">
-                <div class="card-header">
-                    <span class="card-title">🤖 Agent Pipeline</span>
-                    <span class="card-badge" id="pipeline-stage">Idle</span>
-                </div>
-                <div class="card-body">
-                    <div class="pipeline-container">
-                        <div class="pipeline">
-                            <div class="pipeline-progress" id="pipeline-progress" style="width: 0%;"></div>
+                <!-- Agent Pipeline -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <span class="card-title-icon">🔄</span>
+                            Agent Pipeline
+                        </span>
+                        <span class="card-badge" id="pipeline-stage">Idle</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="pipeline" id="pipeline">
+                            <div class="pipeline-progress" id="pipeline-progress"></div>
                             
                             <div class="agent-node pending" data-agent="ideator">
                                 <div class="agent-icon">💡</div>
@@ -772,291 +675,355 @@
                                 <span class="agent-label">Evangelist</span>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="iteration-counter">
-                        <span class="iteration-label">Developer ⇄ Tester Iterations:</span>
-                        <span class="iteration-value" id="iteration-count">0</span>
+                        
+                        <div class="iteration-box">
+                            <span class="iteration-label">Developer ⇄ Tester Iterations</span>
+                            <span class="iteration-value" id="iteration-count">0</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Log Stream Card -->
-            <div class="card log-container slide-up" style="animation-delay: 0.2s;">
-                <div class="card-header">
-                    <span class="card-title">📜 Real-Time Logs</span>
-                    <span class="card-badge" id="log-count">0 entries</span>
-                </div>
-                <div class="card-body" style="flex: 1; display: flex; flex-direction: column;">
-                    <div class="log-stream" id="log-stream">
-                        <div class="log-empty">Connecting to log stream...</div>
+                <!-- Real-Time Logs -->
+                <div class="card log-container">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <span class="card-title-icon">📜</span>
+                            Real-Time Logs
+                        </span>
+                        <span class="card-badge" id="log-count">0 entries</span>
+                    </div>
+                    <div class="card-body" style="flex: 1; display: flex; flex-direction: column;">
+                        <div class="log-stream" id="log-stream">
+                            <div class="log-empty">
+                                <div class="log-empty-icon">📭</div>
+                                <div>Waiting for logs...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </main>
+            </main>
 
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <!-- Stats -->
-            <div class="card fade-in">
-                <div class="card-header">
-                    <span class="card-title">📊 Statistics</span>
-                </div>
-                <div class="card-body">
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-total">0</div>
-                            <div class="stat-label">Total Projects</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value secondary" id="stat-completed">0</div>
-                            <div class="stat-label">Completed</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value purple" id="stat-ideas">0</div>
-                            <div class="stat-label">Ideas Generated</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value warning" id="stat-tweets">0</div>
-                            <div class="stat-label">Tweets Posted</div>
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <!-- Stats -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <span class="card-title-icon">📊</span>
+                            Statistics
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-total">0</div>
+                                <div class="stat-label">Total Projects</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value blue" id="stat-completed">0</div>
+                                <div class="stat-label">Completed</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value purple" id="stat-ideas">0</div>
+                                <div class="stat-label">Ideas</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value yellow" id="stat-inprogress">0</div>
+                                <div class="stat-label">In Progress</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Completed Projects -->
-            <div class="card fade-in" style="animation-delay: 0.1s;">
-                <div class="card-header">
-                    <span class="card-title">✅ Completed Projects</span>
-                </div>
-                <div class="card-body">
-                    <div class="projects-list" id="projects-list">
-                        <div class="no-data">
-                            <div class="no-data-icon">📦</div>
-                            <div>No completed projects yet</div>
+                <!-- Current Agent Output -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <span class="card-title-icon">💬</span>
+                            Agent Output
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="agent-output" id="agent-output">
+                            <div class="agent-output-empty">
+                                <div>No agent activity</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </aside>
+        </div>
+    </div>
 
-            <!-- Ideas -->
-            <div class="card fade-in" style="animation-delay: 0.2s;">
-                <div class="card-header">
-                    <span class="card-title">💡 Recent Ideas</span>
-                </div>
-                <div class="card-body">
-                    <div class="projects-list" id="ideas-list">
-                        <div class="no-data">
-                            <div class="no-data-icon">🧠</div>
-                            <div>No ideas generated yet</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </aside>
+    <!-- Connection Status Indicator -->
+    <div class="connection-status" id="connection-status">
+        <div class="connection-dot"></div>
+        <span id="connection-text">Connecting...</span>
     </div>
 
     <script>
-        // =============================================================================
-        // Dashboard Application
-        // =============================================================================
-        
         const Dashboard = {
             // State
-            state: {
-                logs: [],
-                maxLogs: 100,
-                eventSource: null,
-                retryCount: 0,
-                maxRetries: 5
-            },
-
-            // Agent pipeline order
-            agentOrder: ['ideator', 'planner', 'developer', 'tester', 'uploader', 'evangelist'],
-            
-            // Status to agent mapping
+            logs: [],
+            maxLogs: 100,
+            eventSource: null,
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 10,
+            agents: ['ideator', 'planner', 'developer', 'tester', 'uploader', 'evangelist'],
             statusToAgent: {
-                'pending': null,
-                'ideating': 'ideator',
+                'ideation': 'ideator',
                 'planning': 'planner',
-                'developing': 'developer',
+                'development': 'developer',
                 'testing': 'tester',
                 'uploading': 'uploader',
-                'evangelizing': 'evangelist',
-                'completed': 'completed',
-                'failed': 'failed'
+                'promoting': 'evangelist'
             },
 
-            // Initialize
             init() {
-                console.log('🚀 Initializing 7000%AUTO Dashboard');
-                this.fetchInitialData();
+                console.log('🚀 Dashboard initializing...');
                 this.connectSSE();
-                this.startPolling();
+                this.fetchInitialData();
             },
 
-            // Fetch initial data
             async fetchInitialData() {
-                try {
-                    await Promise.all([
-                        this.fetchStatus(),
-                        this.fetchProjects(),
-                        this.fetchIdeas()
-                    ]);
-                } catch (error) {
-                    console.error('Failed to fetch initial data:', error);
-                }
-            },
-
-            // Fetch system status
-            async fetchStatus() {
                 try {
                     const response = await fetch('/api/status');
                     const data = await response.json();
-                    this.updateStatus(data);
-                } catch (error) {
-                    console.error('Failed to fetch status:', error);
-                    this.setOfflineStatus();
+                    this.updateFromStatus(data);
+                } catch (e) {
+                    console.error('Failed to fetch initial data:', e);
                 }
             },
 
-            // Fetch projects
-            async fetchProjects() {
-                try {
-                    const response = await fetch('/api/projects?per_page=10&status=completed');
-                    const data = await response.json();
-                    this.updateProjectsList(data.projects);
-                } catch (error) {
-                    console.error('Failed to fetch projects:', error);
+            connectSSE() {
+                if (this.eventSource) {
+                    this.eventSource.close();
                 }
+
+                console.log('📡 Connecting to SSE stream...');
+                this.updateConnectionStatus('connecting');
+
+                this.eventSource = new EventSource('/api/stream');
+
+                this.eventSource.onopen = () => {
+                    console.log('✅ SSE connected');
+                    this.reconnectAttempts = 0;
+                    this.updateConnectionStatus('connected');
+                };
+
+                this.eventSource.addEventListener('status', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.updateOrchestratorStatus(data);
+                });
+
+                this.eventSource.addEventListener('init', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.updateFromStatus(data);
+                });
+
+                this.eventSource.addEventListener('heartbeat', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.updateOrchestratorStatus(data);
+                    this.updateLastUpdate();
+                });
+
+                this.eventSource.addEventListener('log', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.addLogEntry(data);
+                });
+
+                this.eventSource.addEventListener('agent_started', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleAgentStarted(data);
+                });
+
+                this.eventSource.addEventListener('agent_completed', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleAgentCompleted(data);
+                });
+
+                this.eventSource.addEventListener('agent_error', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleAgentError(data);
+                });
+
+                this.eventSource.addEventListener('workflow_started', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleWorkflowStarted(data);
+                });
+
+                this.eventSource.addEventListener('workflow_completed', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleWorkflowCompleted(data);
+                });
+
+                this.eventSource.addEventListener('iteration_started', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.updateIterationCount(data.data?.iteration || 0);
+                });
+
+                this.eventSource.onerror = () => {
+                    console.error('❌ SSE error');
+                    this.updateConnectionStatus('disconnected');
+                    this.eventSource.close();
+
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+                        console.log(`🔄 Reconnecting in ${delay/1000}s...`);
+                        setTimeout(() => this.connectSSE(), delay);
+                    }
+                };
             },
 
-            // Fetch ideas
-            async fetchIdeas() {
-                try {
-                    const response = await fetch('/api/ideas?per_page=5');
-                    const data = await response.json();
-                    this.updateIdeasList(data.ideas);
-                } catch (error) {
-                    console.error('Failed to fetch ideas:', error);
-                }
-            },
-
-            // Update status display
-            updateStatus(data) {
-                // Orchestrator status
-                const orchestratorDot = document.getElementById('orchestrator-status');
-                const orchestratorLabel = document.getElementById('orchestrator-label');
+            updateConnectionStatus(status) {
+                const el = document.getElementById('connection-status');
+                const text = document.getElementById('connection-text');
                 
-                if (data.orchestrator_running) {
-                    orchestratorDot.className = 'status-dot active';
-                    orchestratorLabel.textContent = 'Orchestrator Running';
-                } else {
-                    orchestratorDot.className = 'status-dot inactive';
-                    orchestratorLabel.textContent = 'Orchestrator Stopped';
+                el.className = 'connection-status ' + status;
+                
+                switch (status) {
+                    case 'connected':
+                        text.textContent = 'Live';
+                        break;
+                    case 'connecting':
+                        text.textContent = 'Connecting...';
+                        break;
+                    case 'disconnected':
+                        text.textContent = 'Disconnected';
+                        break;
                 }
+            },
 
-                // Database status (assume healthy if we got data)
-                const dbDot = document.getElementById('db-status');
-                dbDot.className = 'status-dot active';
-
-                // Stats
+            updateFromStatus(data) {
+                // Update stats
                 if (data.stats) {
                     document.getElementById('stat-total').textContent = data.stats.total_projects || 0;
                     document.getElementById('stat-completed').textContent = data.stats.completed_projects || 0;
-                    document.getElementById('stat-ideas').textContent = data.stats.ideas_generated || 0;
-                    document.getElementById('stat-tweets').textContent = data.stats.tweets_posted || 0;
-                    document.getElementById('iteration-count').textContent = data.stats.dev_tester_iterations || 0;
+                    document.getElementById('stat-ideas').textContent = data.stats.total_ideas || 0;
+                    const inProgress = (data.stats.total_projects || 0) - (data.stats.completed_projects || 0);
+                    document.getElementById('stat-inprogress').textContent = Math.max(0, inProgress);
                 }
 
-                // Active project
+                // Update active project
                 if (data.active_project) {
-                    this.updateCurrentProject(data.active_project);
-                    this.updatePipeline(data.active_project.status, data.active_project.current_agent);
-                } else {
-                    this.clearCurrentProject();
-                    this.resetPipeline();
+                    this.updateProject(data.active_project);
                 }
 
-                // Last update time
-                document.getElementById('last-update').textContent = 
-                    `Last update: ${new Date().toLocaleTimeString()}`;
+                // Update logs
+                if (data.recent_logs) {
+                    data.recent_logs.reverse().forEach(log => {
+                        this.addLogEntry({
+                            agent: log.agent_name,
+                            message: log.message,
+                            type: log.log_type,
+                            timestamp: log.timestamp
+                        }, false);
+                    });
+                }
+
+                this.updateLastUpdate();
             },
 
-            // Update current project display
-            updateCurrentProject(project) {
-                const container = document.getElementById('current-project');
+            updateOrchestratorStatus(data) {
+                const dot = document.getElementById('orchestrator-dot');
+                const status = document.getElementById('orchestrator-status');
+
+                if (data.orchestrator_running) {
+                    dot.className = 'status-dot running';
+                    status.textContent = 'Running';
+                } else {
+                    dot.className = 'status-dot idle';
+                    status.textContent = 'Idle';
+                }
+
+                if (data.current_agent) {
+                    this.updatePipeline(data.current_agent);
+                }
+
+                if (data.current_project) {
+                    this.updateProject(data.current_project);
+                }
+
+                if (data.dev_test_iterations !== undefined) {
+                    this.updateIterationCount(data.dev_test_iterations);
+                }
+            },
+
+            updateProject(project) {
+                const container = document.getElementById('project-info');
                 const badge = document.getElementById('project-badge');
-                
-                badge.textContent = project.status.toUpperCase();
-                badge.className = 'card-badge active';
-                
-                container.innerHTML = `
-                    <div>
-                        <div class="project-name">${this.escapeHtml(project.name)}</div>
-                        <div class="project-status ${project.status}">${project.status}</div>
-                        <div class="project-meta">
-                            Started: ${this.formatDate(project.created_at)}
-                            ${project.current_agent ? `<br>Current Agent: <strong>${project.current_agent}</strong>` : ''}
+
+                if (!project) {
+                    container.innerHTML = `
+                        <div class="no-project">
+                            <div class="no-project-icon">⏳</div>
+                            <div>Waiting for a project to start...</div>
                         </div>
-                    </div>
-                `;
-            },
+                    `;
+                    badge.textContent = 'No Project';
+                    badge.className = 'card-badge';
+                    return;
+                }
 
-            // Clear current project display
-            clearCurrentProject() {
-                const container = document.getElementById('current-project');
-                const badge = document.getElementById('project-badge');
-                
-                badge.textContent = 'No Active Project';
-                badge.className = 'card-badge';
-                
+                container.className = 'project-info has-project';
+                badge.textContent = project.status;
+                badge.className = 'card-badge active';
+
                 container.innerHTML = `
-                    <div class="no-data">
-                        <div class="no-data-icon">🔄</div>
-                        <div>Waiting for project...</div>
-                    </div>
+                    <div class="project-name">${this.escapeHtml(project.name || 'Unnamed Project')}</div>
+                    <span class="project-status-badge ${project.status}">${project.status}</span>
+                    ${project.current_agent ? `<div class="project-meta">Current Agent: <strong>${project.current_agent}</strong></div>` : ''}
                 `;
+
+                // Update pipeline
+                if (project.status) {
+                    const agent = this.statusToAgent[project.status];
+                    if (agent) {
+                        this.updatePipeline(agent);
+                    }
+                }
             },
 
-            // Update pipeline visualization
-            updatePipeline(status, currentAgent) {
+            updatePipeline(currentAgent) {
                 const pipelineStage = document.getElementById('pipeline-stage');
                 const progressBar = document.getElementById('pipeline-progress');
+
+                let activeIndex = this.agents.indexOf(currentAgent);
                 
-                let activeAgentIndex = -1;
-                
-                if (status === 'completed') {
-                    activeAgentIndex = this.agentOrder.length;
-                    pipelineStage.textContent = 'Completed';
-                } else if (status === 'failed') {
-                    pipelineStage.textContent = 'Failed';
-                } else {
-                    const mappedAgent = this.statusToAgent[status];
-                    if (mappedAgent) {
-                        activeAgentIndex = this.agentOrder.indexOf(mappedAgent);
-                        pipelineStage.textContent = `Stage ${activeAgentIndex + 1}/${this.agentOrder.length}`;
+                if (activeIndex < 0) {
+                    // Check if it's a completed state
+                    if (currentAgent === 'completed') {
+                        activeIndex = this.agents.length;
+                    } else {
+                        activeIndex = -1;
                     }
                 }
 
-                // Update progress bar
-                if (activeAgentIndex >= 0) {
-                    const progress = ((activeAgentIndex) / (this.agentOrder.length - 1)) * 100;
-                    progressBar.style.width = `${Math.min(progress, 100)}%`;
+                // Update stage label
+                if (activeIndex >= 0 && activeIndex < this.agents.length) {
+                    pipelineStage.textContent = `${activeIndex + 1}/${this.agents.length}`;
+                } else if (activeIndex >= this.agents.length) {
+                    pipelineStage.textContent = 'Complete';
                 } else {
-                    progressBar.style.width = '0%';
+                    pipelineStage.textContent = 'Idle';
                 }
 
+                // Update progress bar
+                const totalWidth = document.querySelector('.pipeline').offsetWidth - 96; // Subtract padding
+                const progressWidth = activeIndex >= 0 ? (activeIndex / (this.agents.length - 1)) * totalWidth : 0;
+                progressBar.style.width = `${Math.min(progressWidth, totalWidth)}px`;
+
                 // Update agent nodes
-                this.agentOrder.forEach((agent, index) => {
+                this.agents.forEach((agent, idx) => {
                     const node = document.querySelector(`.agent-node[data-agent="${agent}"]`);
                     if (!node) return;
 
                     node.classList.remove('completed', 'active', 'pending');
-                    
-                    if (index < activeAgentIndex) {
+
+                    if (idx < activeIndex) {
                         node.classList.add('completed');
-                    } else if (index === activeAgentIndex) {
+                    } else if (idx === activeIndex) {
                         node.classList.add('active');
                     } else {
                         node.classList.add('pending');
@@ -1064,268 +1031,162 @@
                 });
             },
 
-            // Reset pipeline to idle state
+            updateIterationCount(count) {
+                document.getElementById('iteration-count').textContent = count;
+            },
+
+            addLogEntry(data, animate = true) {
+                const stream = document.getElementById('log-stream');
+                const countEl = document.getElementById('log-count');
+
+                // Remove empty state
+                const empty = stream.querySelector('.log-empty');
+                if (empty) empty.remove();
+
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${data.type || 'info'}`;
+                if (!animate) entry.style.animation = 'none';
+
+                const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '--:--:--';
+
+                entry.innerHTML = `
+                    <span class="log-time">${time}</span>
+                    <span class="log-agent">[${this.escapeHtml(data.agent || 'SYSTEM')}]</span>
+                    <span class="log-message">${this.escapeHtml(data.message || '')}</span>
+                `;
+
+                stream.appendChild(entry);
+                this.logs.push(data);
+
+                // Limit logs
+                if (this.logs.length > this.maxLogs) {
+                    this.logs.shift();
+                    const first = stream.querySelector('.log-entry');
+                    if (first) first.remove();
+                }
+
+                countEl.textContent = `${this.logs.length} entries`;
+                stream.scrollTop = stream.scrollHeight;
+
+                // Update agent output panel
+                this.updateAgentOutput(data);
+            },
+
+            updateAgentOutput(data) {
+                const container = document.getElementById('agent-output');
+                const agentName = data.agent || 'SYSTEM';
+                const icon = this.getAgentIcon(agentName);
+
+                container.innerHTML = `
+                    <div class="agent-output-header">
+                        <span class="agent-output-icon">${icon}</span>
+                        <span class="agent-output-name">${agentName}</span>
+                        <span class="agent-output-status">${new Date().toLocaleTimeString()}</span>
+                    </div>
+                    <div class="agent-output-content">${this.escapeHtml(data.message || 'No output')}</div>
+                `;
+            },
+
+            getAgentIcon(agent) {
+                const icons = {
+                    'ideator': '💡',
+                    'planner': '📋',
+                    'developer': '👨‍💻',
+                    'tester': '🧪',
+                    'uploader': '🚀',
+                    'evangelist': '📣',
+                    'SYSTEM': '⚙️'
+                };
+                return icons[agent] || '🤖';
+            },
+
+            handleAgentStarted(data) {
+                this.updatePipeline(data.agent);
+                this.addLogEntry({
+                    agent: data.agent,
+                    message: data.message || `${data.agent} started`,
+                    type: 'info',
+                    timestamp: data.timestamp
+                });
+            },
+
+            handleAgentCompleted(data) {
+                this.addLogEntry({
+                    agent: data.agent,
+                    message: data.message || `${data.agent} completed`,
+                    type: 'output',
+                    timestamp: data.timestamp
+                });
+            },
+
+            handleAgentError(data) {
+                this.addLogEntry({
+                    agent: data.agent,
+                    message: data.message || `Error in ${data.agent}`,
+                    type: 'error',
+                    timestamp: data.timestamp
+                });
+            },
+
+            handleWorkflowStarted(data) {
+                this.resetPipeline();
+                this.addLogEntry({
+                    agent: 'SYSTEM',
+                    message: 'New workflow started',
+                    type: 'info',
+                    timestamp: data.timestamp
+                });
+            },
+
+            handleWorkflowCompleted(data) {
+                this.agents.forEach(agent => {
+                    const node = document.querySelector(`.agent-node[data-agent="${agent}"]`);
+                    if (node) {
+                        node.classList.remove('active', 'pending');
+                        node.classList.add('completed');
+                    }
+                });
+
+                document.getElementById('pipeline-stage').textContent = 'Complete';
+
+                this.addLogEntry({
+                    agent: 'SYSTEM',
+                    message: `Workflow completed! Project: ${data.data?.project_name || 'Unknown'}`,
+                    type: 'output',
+                    timestamp: data.timestamp
+                });
+
+                // Refresh stats
+                this.fetchInitialData();
+            },
+
             resetPipeline() {
-                const pipelineStage = document.getElementById('pipeline-stage');
-                const progressBar = document.getElementById('pipeline-progress');
-                
-                pipelineStage.textContent = 'Idle';
-                progressBar.style.width = '0%';
-                
-                this.agentOrder.forEach(agent => {
+                this.agents.forEach(agent => {
                     const node = document.querySelector(`.agent-node[data-agent="${agent}"]`);
                     if (node) {
                         node.classList.remove('completed', 'active');
                         node.classList.add('pending');
                     }
                 });
+                document.getElementById('pipeline-progress').style.width = '0';
+                document.getElementById('pipeline-stage').textContent = 'Idle';
+                document.getElementById('iteration-count').textContent = '0';
             },
 
-            // Update projects list
-            updateProjectsList(projects) {
-                const container = document.getElementById('projects-list');
-                
-                if (!projects || projects.length === 0) {
-                    container.innerHTML = `
-                        <div class="no-data">
-                            <div class="no-data-icon">📦</div>
-                            <div>No completed projects yet</div>
-                        </div>
-                    `;
-                    return;
-                }
-
-                container.innerHTML = projects.map(project => `
-                    <div class="project-item" onclick="Dashboard.viewProject('${project.id}')">
-                        <div class="project-item-header">
-                            <span class="project-item-name">${this.escapeHtml(project.name)}</span>
-                            <span class="project-item-status project-status ${project.status}">${project.status}</span>
-                        </div>
-                        ${project.repo_url ? `
-                            <a href="${project.repo_url}" target="_blank" class="project-item-link" onclick="event.stopPropagation()">
-                                🔗 ${this.extractRepoName(project.repo_url)}
-                            </a>
-                        ` : ''}
-                        <div class="project-item-date">${this.formatDate(project.completed_at || project.created_at)}</div>
-                    </div>
-                `).join('');
+            updateLastUpdate() {
+                document.getElementById('last-update').textContent = 
+                    `Updated: ${new Date().toLocaleTimeString()}`;
             },
 
-            // Update ideas list
-            updateIdeasList(ideas) {
-                const container = document.getElementById('ideas-list');
-                
-                if (!ideas || ideas.length === 0) {
-                    container.innerHTML = `
-                        <div class="no-data">
-                            <div class="no-data-icon">🧠</div>
-                            <div>No ideas generated yet</div>
-                        </div>
-                    `;
-                    return;
-                }
-
-                container.innerHTML = ideas.map(item => `
-                    <div class="project-item" onclick="Dashboard.viewProject('${item.project_id}')">
-                        <div class="project-item-header">
-                            <span class="project-item-name">${this.escapeHtml(item.project_name)}</span>
-                            <span class="project-item-status project-status ${item.status}">${item.status}</span>
-                        </div>
-                        ${item.idea && item.idea.name ? `
-                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                                ${this.escapeHtml(item.idea.name)}
-                            </div>
-                        ` : ''}
-                        <div class="project-item-date">${this.formatDate(item.created_at)}</div>
-                    </div>
-                `).join('');
-            },
-
-            // View project details
-            async viewProject(projectId) {
-                try {
-                    const response = await fetch(`/api/projects/${projectId}`);
-                    const project = await response.json();
-                    console.log('Project details:', project);
-                    // Could open a modal here with full details
-                    alert(`Project: ${project.name}\nStatus: ${project.status}\nRepo: ${project.repo_url || 'N/A'}`);
-                } catch (error) {
-                    console.error('Failed to fetch project:', error);
-                }
-            },
-
-            // Connect to SSE stream
-            connectSSE() {
-                if (this.state.eventSource) {
-                    this.state.eventSource.close();
-                }
-
-                console.log('📡 Connecting to SSE stream...');
-                this.state.eventSource = new EventSource('/api/logs/stream');
-
-                this.state.eventSource.onopen = () => {
-                    console.log('✅ SSE connection established');
-                    this.state.retryCount = 0;
-                    this.addLog({
-                        type: 'info',
-                        log: {
-                            agent_name: 'SYSTEM',
-                            action: 'Connected to real-time log stream',
-                            timestamp: new Date().toISOString()
-                        }
-                    });
-                };
-
-                this.state.eventSource.addEventListener('log', (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        this.addLog(data);
-                    } catch (e) {
-                        console.error('Failed to parse log event:', e);
-                    }
-                });
-
-                this.state.eventSource.addEventListener('status', (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        if (data.active_project) {
-                            this.updateCurrentProject(data.active_project);
-                            this.updatePipeline(data.active_project.status, data.active_project.current_agent);
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse status event:', e);
-                    }
-                });
-
-                this.state.eventSource.addEventListener('error', (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        this.addLog({
-                            type: 'error',
-                            log: {
-                                agent_name: 'SYSTEM',
-                                action: `Error: ${data.error}`,
-                                timestamp: new Date().toISOString()
-                            }
-                        });
-                    } catch (e) {
-                        // Connection error, not a data error
-                    }
-                });
-
-                this.state.eventSource.onerror = (error) => {
-                    console.error('❌ SSE connection error:', error);
-                    this.state.eventSource.close();
-                    
-                    this.state.retryCount++;
-                    if (this.state.retryCount <= this.state.maxRetries) {
-                        const delay = Math.min(1000 * Math.pow(2, this.state.retryCount), 30000);
-                        console.log(`🔄 Reconnecting in ${delay/1000}s...`);
-                        setTimeout(() => this.connectSSE(), delay);
-                    } else {
-                        this.addLog({
-                            type: 'error',
-                            log: {
-                                agent_name: 'SYSTEM',
-                                action: 'Failed to connect to log stream. Please refresh the page.',
-                                timestamp: new Date().toISOString()
-                            }
-                        });
-                    }
-                };
-            },
-
-            // Add log entry
-            addLog(data) {
-                const logStream = document.getElementById('log-stream');
-                const logCount = document.getElementById('log-count');
-                
-                // Remove empty message if present
-                const emptyMsg = logStream.querySelector('.log-empty');
-                if (emptyMsg) {
-                    emptyMsg.remove();
-                }
-
-                const log = data.log;
-                const type = data.type || 'info';
-                
-                const entry = document.createElement('div');
-                entry.className = `log-entry ${type}`;
-                entry.innerHTML = `
-                    <span class="log-time">${this.formatTime(log.timestamp)}</span>
-                    <span class="log-agent">[${log.agent_name}]</span>
-                    <span class="log-message">${this.escapeHtml(log.action)}${log.status ? ` - ${log.status}` : ''}</span>
-                `;
-                
-                logStream.appendChild(entry);
-                
-                // Limit logs
-                this.state.logs.push(data);
-                if (this.state.logs.length > this.state.maxLogs) {
-                    this.state.logs.shift();
-                    const firstEntry = logStream.querySelector('.log-entry');
-                    if (firstEntry) firstEntry.remove();
-                }
-                
-                // Update count
-                logCount.textContent = `${this.state.logs.length} entries`;
-                
-                // Auto-scroll
-                logStream.scrollTop = logStream.scrollHeight;
-            },
-
-            // Start polling for updates
-            startPolling() {
-                // Poll status every 10 seconds
-                setInterval(() => this.fetchStatus(), 10000);
-                
-                // Poll projects every 30 seconds
-                setInterval(() => {
-                    this.fetchProjects();
-                    this.fetchIdeas();
-                }, 30000);
-            },
-
-            // Set offline status
-            setOfflineStatus() {
-                const orchestratorDot = document.getElementById('orchestrator-status');
-                const dbDot = document.getElementById('db-status');
-                
-                orchestratorDot.className = 'status-dot error';
-                dbDot.className = 'status-dot error';
-            },
-
-            // Utility: Escape HTML
             escapeHtml(text) {
                 if (!text) return '';
                 const div = document.createElement('div');
                 div.textContent = text;
                 return div.innerHTML;
-            },
-
-            // Utility: Format date
-            formatDate(dateStr) {
-                if (!dateStr) return 'N/A';
-                const date = new Date(dateStr);
-                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-            },
-
-            // Utility: Format time
-            formatTime(dateStr) {
-                if (!dateStr) return '--:--:--';
-                const date = new Date(dateStr);
-                return date.toLocaleTimeString();
-            },
-
-            // Utility: Extract repo name from URL
-            extractRepoName(url) {
-                if (!url) return 'Repository';
-                const parts = url.split('/');
-                return parts[parts.length - 1] || parts[parts.length - 2] || 'Repository';
             }
         };
 
-        // Initialize on DOM ready
+        // Initialize on load
         document.addEventListener('DOMContentLoaded', () => Dashboard.init());
     </script>
 </body>
