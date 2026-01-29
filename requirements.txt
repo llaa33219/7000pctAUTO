@@ -28,7 +28,7 @@ mcp>=1.0.0
 
 # External APIs
 tweepy>=4.14.0
-PyGithub>=2.1.0
+# PyGithub removed - using Gitea API via httpx
 
 # Utilities
 aiofiles>=23.2.0

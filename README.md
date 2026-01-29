@@ -27,16 +27,16 @@
 |-------|------|-------|
 | **Ideator** | Generates innovative project ideas and concepts | Search |
 | **Planner** | Creates detailed project plans and task breakdowns | Search, Database |
-| **Developer** | Implements production-ready code | Search, GitHub, Database |
-| **Tester** | Tests implementations and ensures quality | Search, GitHub, Database |
-| **Uploader** | Deploys code to GitHub repositories | GitHub, Database |
+| **Developer** | Implements production-ready code | Search, Gitea, Database |
+| **Tester** | Tests implementations and ensures quality | Search, Gitea, Database |
+| **Uploader** | Deploys code to Gitea repositories | Gitea, Database |
 | **Evangelist** | Promotes projects on social media | X/Twitter, Search, Database |
 
 ## 📋 Prerequisites
 
 - Python 3.11+
 - MiniMax API key ([Get one here](https://platform.minimax.chat))
-- GitHub Personal Access Token ([Create here](https://github.com/settings/tokens))
+- Gitea Personal Access Token (Create in your Gitea instance settings)
 - X/Twitter API keys ([Developer Portal](https://developer.twitter.com/en/portal/dashboard))
 
 ## 🛠️ Installation
@@ -45,7 +45,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/7000auto.git
+   git clone https://7000pct.gitea.bloupla.net/yourusername/7000auto.git
    cd 7000auto
    ```
 
@@ -101,7 +101,9 @@ docker run -d \
 |----------|-------------|----------|---------|
 | `MINIMAX_API_KEY` | MiniMax API key | ✅ | - |
 | `MINIMAX_MODEL` | Model identifier | ❌ | `minimax-m2.1` |
-| `GITHUB_TOKEN` | GitHub personal access token | ✅ | - |
+| `GITEA_TOKEN` | Gitea personal access token | ✅ | - |
+| `GITEA_USERNAME` | Gitea username for repo creation | ✅ | - |
+| `GITEA_URL` | Gitea server URL | ❌ | `https://7000pct.gitea.bloupla.net` |
 | `X_API_KEY` | Twitter API key | ✅ | - |
 | `X_API_SECRET` | Twitter API secret | ✅ | - |
 | `X_ACCESS_TOKEN` | Twitter access token | ✅ | - |
@@ -121,7 +123,7 @@ The `opencode.json` file configures the OpenCode SDK and MCP servers:
   "model": "minimax-m2.1",
   "mcpServers": {
     "search": { "enabled": true },
-    "github": { "enabled": true },
+    "gitea": { "enabled": true },
     "x_api": { "enabled": true },
     "database": { "enabled": true }
   }
@@ -194,7 +196,7 @@ curl http://localhost:8000/health
 3. **Planning**: Planner agent creates implementation plan with tasks and milestones
 4. **Development**: Developer agent writes production-ready code
 5. **Testing**: Tester agent validates code quality and functionality
-6. **Upload**: Uploader agent deploys code to GitHub repository
+6. **Upload**: Uploader agent deploys code to Gitea repository
 7. **Evangelism**: Evangelist agent promotes the project on X/Twitter
 
 ## 🧪 Development
@@ -245,7 +247,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 📧 Support
 
-For issues and questions, please open a GitHub issue.
+For issues and questions, please open an issue on our Gitea repository.
 
 ---
 

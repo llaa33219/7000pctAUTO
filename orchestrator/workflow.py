@@ -345,37 +345,37 @@ Run the actual test commands and report if they pass or fail."""
                     pass
     
     async def run_uploader(self, project_id: int, project_name: str) -> Optional[str]:
-        """Run the Uploader agent to publish to GitHub"""
+        """Run the Uploader agent to publish to Gitea"""
         await self._emit_event(WorkflowEvent(
             type=WorkflowEventType.AGENT_STARTED,
             agent="uploader",
-            message="Uploading to GitHub"
+            message="Uploading to Gitea"
         ))
         
         session_id = None
         try:
             session_id = await self.client.create_session("uploader")
             
-            prompt = f"""Upload the project "{project_name}" to GitHub:
+            prompt = f"""Upload the project "{project_name}" to Gitea:
 
 1. Create a new public repository named "{project_name}"
 2. Write a comprehensive README
-3. Set up GitHub Actions for CI/CD
+3. Set up Gitea Actions for CI/CD
 4. Push all code
 5. Create an initial release if appropriate
 
-Use the github tools to create and push the repository."""
+Use the gitea tools to create and push the repository."""
             
             await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
             session_id = None
             
-            # TODO: Get actual GitHub URL from DB or github MCP
+            # TODO: Get actual Gitea URL from DB or gitea MCP
             # For now, construct it from project name
             from config import settings
-            github_url = f"https://github.com/{settings.GITHUB_USERNAME}/{project_name}"
+            github_url = f"{settings.GITEA_URL.rstrip('/')}/{settings.GITEA_USERNAME}/{project_name}"
             
-            await self._log(project_id, "uploader", f"Uploaded to: {github_url}", "output")
+            await self._log(project_id, "uploader", f"Uploaded to Gitea: {github_url}", "output")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_COMPLETED,
                 agent="uploader",
@@ -566,7 +566,7 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
             github_url = await self.run_uploader(project_id, project_name)
             if not github_url:
                 await update_project_status(project_id, "failed")
-                return {"success": False, "project_id": project_id, "error": "Uploader failed to upload to GitHub"}
+                return {"success": False, "project_id": project_id, "error": "Uploader failed to upload to Gitea"}
             
             await update_project_status(project_id, "uploading", github_url=github_url)
             

@@ -33,9 +33,10 @@ class Settings(BaseSettings):
     # OpenCode Server
     OPENCODE_SERVER_URL: Optional[str] = Field(default=None, description="OpenCode server URL (default: http://127.0.0.1:18080)")
     
-    # GitHub
-    GITHUB_TOKEN: str = Field(default="", description="GitHub Personal Access Token")
-    GITHUB_USERNAME: Optional[str] = Field(default=None, description="GitHub username for repo creation")
+    # Gitea
+    GITEA_TOKEN: str = Field(default="", description="Gitea Personal Access Token")
+    GITEA_USERNAME: Optional[str] = Field(default=None, description="Gitea username for repo creation")
+    GITEA_URL: str = Field(default="https://7000pct.gitea.bloupla.net", description="Gitea server URL")
     
     # X (Twitter) API
     X_API_KEY: str = Field(default="", description="X API Key (Consumer Key)")
@@ -77,8 +78,8 @@ class Settings(BaseSettings):
         Path("./data").mkdir(parents=True, exist_ok=True)
     
     @property
-    def is_github_configured(self) -> bool:
-        return bool(self.GITHUB_TOKEN)
+    def is_gitea_configured(self) -> bool:
+        return bool(self.GITEA_TOKEN)
     
     @property
     def is_x_configured(self) -> bool:

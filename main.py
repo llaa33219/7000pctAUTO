@@ -257,7 +257,7 @@ def generate_opencode_config() -> None:
                 }
             },
             "uploader": {
-                "description": "Uploads projects to GitHub",
+                "description": "Uploads projects to Gitea",
                 "mode": "primary",
                 "prompt": "{file:.opencode/agent/uploader.md}",
                 "tools": {
@@ -283,9 +283,9 @@ def generate_opencode_config() -> None:
                 "command": ["python", "-m", "mcp_servers.search_mcp"],
                 "enabled": True
             },
-            "github": {
+            "gitea": {
                 "type": "local",
-                "command": ["python", "-m", "mcp_servers.github_mcp"],
+                "command": ["python", "-m", "mcp_servers.gitea_mcp"],
                 "enabled": True
             },
             "x_api": {
@@ -695,7 +695,7 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Application startup complete",
             auto_start=settings.AUTO_START,
-            github_configured=settings.is_github_configured,
+            gitea_configured=settings.is_gitea_configured,
             x_configured=settings.is_x_configured,
             opencode_configured=settings.is_opencode_configured,
             opencode_available=opencode_url is not None,
@@ -784,7 +784,7 @@ async def health_check():
         "config": {
             "auto_start": settings.AUTO_START,
             "debug": settings.DEBUG,
-            "github_configured": settings.is_github_configured,
+            "gitea_configured": settings.is_gitea_configured,
             "x_configured": settings.is_x_configured,
             "opencode_configured": settings.is_opencode_configured,
             "opencode_url": opencode_server_url,
@@ -817,7 +817,7 @@ async def get_status():
             "max_concurrent_projects": settings.MAX_CONCURRENT_PROJECTS,
         },
         "integrations": {
-            "github": settings.is_github_configured,
+            "gitea": settings.is_gitea_configured,
             "x_twitter": settings.is_x_configured,
             "minimax": settings.is_opencode_configured,
         },

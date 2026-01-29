@@ -80,17 +80,17 @@ AGENTS = {
     AgentType.DEVELOPER: {
         "name": "Developer",
         "description": "Implements code and technical solutions",
-        "tools": ["search", "github", "database"],
+        "tools": ["search", "gitea", "database"],
     },
     AgentType.TESTER: {
         "name": "Tester",
         "description": "Tests implementations and ensures quality",
-        "tools": ["search", "github", "database"],
+        "tools": ["search", "gitea", "database"],
     },
     AgentType.UPLOADER: {
         "name": "Uploader",
         "description": "Manages code deployment and repository operations",
-        "tools": ["github", "database"],
+        "tools": ["gitea", "database"],
     },
     AgentType.EVANGELIST: {
         "name": "Evangelist",
