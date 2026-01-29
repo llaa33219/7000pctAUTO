@@ -68,6 +68,8 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(20), default=ProjectStatus.IDEATION.value)
     idea_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted idea data from MCP
     plan_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    test_result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted test result from Tester MCP
+    implementation_status_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted status from Developer MCP
     github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     x_post_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     dev_test_iterations: Mapped[int] = mapped_column(default=0)

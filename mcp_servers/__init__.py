@@ -7,5 +7,6 @@ from .search_mcp import mcp as search_mcp
 from .x_mcp import mcp as x_mcp
 from .database_mcp import mcp as database_mcp
 from .gitea_mcp import mcp as gitea_mcp
+from .devtest_mcp import mcp as devtest_mcp
 
-__all__ = ['search_mcp', 'x_mcp', 'database_mcp', 'gitea_mcp']
+__all__ = ['search_mcp', 'x_mcp', 'database_mcp', 'gitea_mcp', 'devtest_mcp']

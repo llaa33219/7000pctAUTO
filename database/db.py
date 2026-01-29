@@ -406,6 +406,90 @@ async def set_project_plan_json(project_id: int, plan_json: dict, session: Optio
             return await _set(s)
 
 
+async def get_project_test_result_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted test result JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.test_result_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def set_project_test_result_json(project_id: int, test_result_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the test result JSON for a project (called by MCP submit_test_result)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.test_result_json = test_result_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
+
+async def get_project_implementation_status_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted implementation status JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.implementation_status_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def set_project_implementation_status_json(project_id: int, implementation_status_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the implementation status JSON for a project (called by MCP submit_implementation_status)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.implementation_status_json = implementation_status_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
+
+async def clear_project_devtest_state(project_id: int, session: Optional[AsyncSession] = None) -> bool:
+    """Clear test result and implementation status for a new dev-test iteration"""
+    async def _clear(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.test_result_json = None
+            project.implementation_status_json = None
+            return True
+        return False
+    
+    if session:
+        return await _clear(session)
+    else:
+        async with get_db() as s:
+            return await _clear(s)
+
+
 async def get_stats(session: Optional[AsyncSession] = None) -> dict:
     """Get database statistics"""
     async def _get(s: AsyncSession) -> dict:

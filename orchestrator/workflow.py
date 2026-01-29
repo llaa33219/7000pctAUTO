@@ -13,6 +13,13 @@ from typing import Optional, Dict, Any, List, Callable
 from .state import StateManager, ProjectState, AgentType
 from .opencode_client import OpenCodeClient
 
+# DevTest MCP communication imports
+from database.db import (
+    get_project_implementation_status_json,
+    get_project_test_result_json,
+    clear_project_devtest_state,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -234,42 +241,72 @@ When you have finalized your plan, use the submit_plan tool with project_id={pro
                 except Exception:
                     pass
     
-    async def run_developer(self, project_id: int, plan: Dict[str, Any], feedback: Optional[str] = None) -> bool:
+    async def run_developer(self, project_id: int, plan: Dict[str, Any], is_fixing: bool = False) -> bool:
         """Run the Developer agent to implement the project"""
         await self._emit_event(WorkflowEvent(
             type=WorkflowEventType.AGENT_STARTED,
             agent="developer",
-            message="Starting implementation" if not feedback else "Fixing bugs"
+            message="Starting implementation" if not is_fixing else "Fixing bugs"
         ))
         
         session_id = None
         try:
             session_id = await self.client.create_session("developer")
             
-            if feedback:
-                prompt = f"""Fix the following bugs reported by the Tester:
+            if is_fixing:
+                # Developer will use get_test_result MCP tool to see bugs
+                prompt = f"""You are working on project_id={project_id}.
 
-{feedback}
+The Tester found bugs in your implementation. Use the get_test_result tool with project_id={project_id} to see the detailed bug report.
 
-Make the necessary changes and ensure the code works correctly."""
+Fix all the bugs reported by the Tester. After fixing, use the submit_implementation_status tool with:
+- project_id={project_id}
+- status="fixed"
+- bugs_addressed: list the bugs you fixed
+- ready_for_testing=True"""
             else:
-                prompt = f"""Implement this project according to the plan:
+                # New implementation
+                prompt = f"""You are working on project_id={project_id}.
+
+Implement this project according to the plan:
 
 {plan}
 
-Create all files, install dependencies, and ensure the project is complete and working."""
+Create all files, install dependencies, and ensure the project is complete and working.
+
+When done, use the submit_implementation_status tool with:
+- project_id={project_id}
+- status="completed"
+- files_created: list the files you created
+- dependencies_installed: list the packages you installed
+- ready_for_testing=True"""
             
-            response = await self.client.send_message(session_id, prompt)
+            await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
             session_id = None
             
-            await self._log(project_id, "developer", "Implementation completed", "output")
-            await self._emit_event(WorkflowEvent(
-                type=WorkflowEventType.AGENT_COMPLETED,
-                agent="developer",
-                message="Implementation completed"
-            ))
-            return True
+            # Verify implementation status was submitted
+            impl_status = await get_project_implementation_status_json(project_id)
+            
+            if impl_status and impl_status.get("ready_for_testing"):
+                status = impl_status.get("status", "completed")
+                await self._log(project_id, "developer", f"Implementation {status}", "output")
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.AGENT_COMPLETED,
+                    agent="developer",
+                    message=f"Implementation {status}",
+                    data=impl_status
+                ))
+                return True
+            else:
+                # Even without explicit status, consider success if no exception
+                await self._log(project_id, "developer", "Implementation completed", "output")
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.AGENT_COMPLETED,
+                    agent="developer",
+                    message="Implementation completed"
+                ))
+                return True
             
         except Exception as e:
             error_msg = str(e)
@@ -302,27 +339,63 @@ Create all files, install dependencies, and ensure the project is complete and w
         try:
             session_id = await self.client.create_session("tester")
             
-            prompt = """Test the implemented project:
+            prompt = f"""You are working on project_id={project_id}.
+
+Test the implemented project:
 
 1. Run linting and type checking
 2. Run unit tests
 3. Verify the build works
 4. Check for obvious bugs
 
-Run the actual test commands and report if they pass or fail."""
+Run the actual test commands and report if they pass or fail.
+
+When done, use the submit_test_result tool with:
+- project_id={project_id}
+- status="PASS" or "FAIL"
+- summary: brief description of results
+- checks_performed: list of checks you ran
+- bugs: list of bugs found (if any)
+- ready_for_upload: true only if all tests pass"""
             
             await self.client.send_message(session_id, prompt)
             await self.client.close_session(session_id)
             session_id = None
             
-            # Tester agent runs tests directly - assume pass if no exception
-            await self._log(project_id, "tester", "Tests completed", "output")
-            await self._emit_event(WorkflowEvent(
-                type=WorkflowEventType.TEST_PASSED,
-                agent="tester",
-                message="Tests completed"
-            ))
-            return {"status": "PASS"}
+            # Get test result from database (submitted via MCP)
+            test_result = await get_project_test_result_json(project_id)
+            
+            if test_result:
+                status = test_result.get("status", "PASS")
+                bugs = test_result.get("bugs", [])
+                
+                if status == "PASS":
+                    await self._log(project_id, "tester", "All tests passed", "output")
+                    await self._emit_event(WorkflowEvent(
+                        type=WorkflowEventType.TEST_PASSED,
+                        agent="tester",
+                        message="All tests passed",
+                        data=test_result
+                    ))
+                    return {"status": "PASS"}
+                else:
+                    await self._log(project_id, "tester", f"Tests failed: {len(bugs)} bugs found", "output")
+                    await self._emit_event(WorkflowEvent(
+                        type=WorkflowEventType.TEST_FAILED,
+                        agent="tester",
+                        message=f"Tests failed: {len(bugs)} bugs found",
+                        data=test_result
+                    ))
+                    return {"status": "FAIL", "bugs": bugs}
+            else:
+                # No explicit test result - assume pass if no exception
+                await self._log(project_id, "tester", "Tests completed", "output")
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.TEST_PASSED,
+                    agent="tester",
+                    message="Tests completed"
+                ))
+                return {"status": "PASS"}
             
         except Exception as e:
             error_msg = str(e)
@@ -516,7 +589,7 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
             
             # 3. DEVELOPER -> TESTER LOOP (INFINITE)
             iteration = 0
-            feedback = None
+            is_fixing = False
             
             while self._running:
                 iteration += 1
@@ -527,29 +600,29 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
                     data={"iteration": iteration}
                 ))
                 
+                # Clear previous devtest state for new iteration
+                await clear_project_devtest_state(project_id)
+                
                 await update_project_status(
                     project_id, "development",
                     current_agent="developer",
                     dev_test_iterations=iteration
                 )
                 
-                # Developer
-                success = await self.run_developer(project_id, plan, feedback)
+                # Developer (uses MCP to get test results if is_fixing)
+                success = await self.run_developer(project_id, plan, is_fixing)
                 if not success:
                     continue  # Try again
                 
-                # Tester
+                # Tester (uses MCP to submit test results)
                 await update_project_status(project_id, "testing", current_agent="tester")
                 test_result = await self.run_tester(project_id)
                 
                 if test_result.get("status") == "PASS":
                     break  # Exit loop - tests passed!
                 
-                # Tests failed - prepare feedback for next iteration
-                bugs = test_result.get("bugs", [])
-                feedback = f"Test iteration {iteration} failed. Bugs found:\n"
-                for bug in bugs:
-                    feedback += f"- {bug.get('file', 'unknown')}: {bug.get('issue', 'unknown issue')}\n"
+                # Tests failed - next iteration will be a fix
+                is_fixing = True
                 
                 await self.state_manager.update_state(
                     project_id,

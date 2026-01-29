@@ -23,6 +23,12 @@ from .db import (
     get_project_plan_json,
     set_project_idea_json,
     set_project_plan_json,
+    # DevTest operations (Developer-Tester communication)
+    get_project_test_result_json,
+    set_project_test_result_json,
+    get_project_implementation_status_json,
+    set_project_implementation_status_json,
+    clear_project_devtest_state,
     # Logging
     add_agent_log,
     get_recent_logs,
@@ -57,6 +63,13 @@ __all__ = [
     "get_project_plan_json",
     "set_project_idea_json",
     "set_project_plan_json",
+    # DevTest operations
+    "get_project_test_result_json",
+    "set_project_test_result_json",
+    "get_project_implementation_status_json",
+    "set_project_implementation_status_json",
+    "clear_project_devtest_state",
+    # Logging
     "add_agent_log",
     "get_recent_logs",
     "get_project_logs",

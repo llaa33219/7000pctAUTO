@@ -297,6 +297,11 @@ def generate_opencode_config() -> None:
                 "type": "local",
                 "command": ["python", "-m", "mcp_servers.database_mcp"],
                 "enabled": True
+            },
+            "devtest": {
+                "type": "local",
+                "command": ["python", "-m", "mcp_servers.devtest_mcp"],
+                "enabled": True
             }
         }
     }
