@@ -70,8 +70,11 @@ class Project(Base):
     plan_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     test_result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted test result from Tester MCP
     implementation_status_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Submitted status from Developer MCP
-    github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    gitea_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     x_post_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ci_result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # CI/CD result from Tester
+    upload_status_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Upload status from Uploader
+    ci_test_iterations: Mapped[int] = mapped_column(default=0)  # Uploader-Tester-Developer CI loop iterations
     dev_test_iterations: Mapped[int] = mapped_column(default=0)
     current_agent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

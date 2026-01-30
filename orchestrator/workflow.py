@@ -18,6 +18,9 @@ from database.db import (
     get_project_implementation_status_json,
     get_project_test_result_json,
     clear_project_devtest_state,
+    get_project_ci_result_json,
+    get_project_upload_status_json,
+    clear_project_ci_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -490,25 +493,55 @@ When done, use the submit_test_result tool with:
                 except Exception:
                     pass
     
-    async def run_uploader(self, project_id: int, project_name: str) -> Optional[str]:
+    async def run_uploader(self, project_id: int, project_name: str, is_fixing: bool = False) -> Optional[str]:
         """Run the Uploader agent to publish to Gitea"""
         await self._emit_event(WorkflowEvent(
             type=WorkflowEventType.AGENT_STARTED,
             agent="uploader",
-            message="Uploading to Gitea"
+            message="Uploading to Gitea" if not is_fixing else "Re-uploading fixes to Gitea"
         ))
         
         session_id = None
         try:
             session_id = await self.client.create_session("uploader")
             
-            prompt = f"""Upload the project "{project_name}" to Gitea:
+            if is_fixing:
+                # Re-upload after CI fix
+                prompt = f"""You are working on project_id={project_id}.
+
+The Developer has fixed CI/CD issues. Use the get_ci_result tool to see what was fixed.
+
+Re-upload the fixed code to the existing repository "{project_name}" on Gitea:
+
+1. Push the updated/fixed files to the existing repository
+2. Use a meaningful commit message describing the CI fixes
+
+After pushing, use the submit_upload_status tool with:
+- project_id={project_id}
+- status="completed"
+- repo_name="{project_name}"
+- gitea_url: the repository URL
+- files_pushed: list of files you pushed
+
+Use the gitea tools to push the updates."""
+            else:
+                # Initial upload
+                prompt = f"""You are working on project_id={project_id}.
+
+Upload the project "{project_name}" to Gitea:
 
 1. Create a new public repository named "{project_name}"
 2. Write a comprehensive README
 3. Set up Gitea Actions for CI/CD
 4. Push all code
 5. Create an initial release if appropriate
+
+After uploading, use the submit_upload_status tool with:
+- project_id={project_id}
+- status="completed"
+- repo_name="{project_name}"
+- gitea_url: the full repository URL on Gitea
+- files_pushed: list of files you pushed
 
 Use the gitea tools to create and push the repository."""
             
@@ -522,19 +555,23 @@ Use the gitea tools to create and push the repository."""
             await self.client.close_session(session_id)
             session_id = None
             
-            # TODO: Get actual Gitea URL from DB or gitea MCP
-            # For now, construct it from project name
-            from config import settings
-            github_url = f"{settings.GITEA_URL.rstrip('/')}/{settings.GITEA_USERNAME}/{project_name}"
+            # Get actual Gitea URL from upload status submitted by agent
+            upload_status = await get_project_upload_status_json(project_id)
+            if upload_status and upload_status.get("gitea_url"):
+                gitea_url = upload_status.get("gitea_url")
+            else:
+                # Fallback: construct URL from project name
+                from config import settings
+                gitea_url = f"{settings.GITEA_URL.rstrip('/')}/{settings.GITEA_USERNAME}/{project_name}"
             
-            await self._log(project_id, "uploader", f"Uploaded to Gitea: {github_url}", "output")
+            await self._log(project_id, "uploader", f"Uploaded to Gitea: {gitea_url}", "output")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_COMPLETED,
                 agent="uploader",
                 message="Upload completed",
-                data={"github_url": github_url}
+                data={"gitea_url": gitea_url}
             ))
-            return github_url
+            return gitea_url
             
         except Exception as e:
             error_msg = str(e)
@@ -555,7 +592,179 @@ Use the gitea tools to create and push the repository."""
                 except Exception:
                     pass
     
-    async def run_evangelist(self, project_id: int, github_url: str, project_info: Dict[str, Any]) -> Optional[str]:
+    async def run_ci_tester(self, project_id: int, project_name: str, gitea_url: str) -> Dict[str, Any]:
+        """Run the Tester agent to check Gitea Actions CI/CD status"""
+        await self._emit_event(WorkflowEvent(
+            type=WorkflowEventType.AGENT_STARTED,
+            agent="tester",
+            message="Checking Gitea Actions CI/CD status"
+        ))
+        
+        session_id = None
+        try:
+            session_id = await self.client.create_session("tester")
+            
+            prompt = f"""You are working on project_id={project_id}.
+
+The Uploader has pushed code to Gitea. Check the Gitea Actions CI/CD status:
+
+1. Use get_latest_workflow_status tool with repo="{project_name}" to check CI status
+2. If status is "pending", wait a moment and check again (CI may still be running)
+3. If status is "passed", CI is successful
+4. If status is "failed", use get_workflow_run_jobs to see which jobs failed
+
+After checking, use submit_ci_result tool with:
+- project_id={project_id}
+- status="PASS" or "FAIL" or "PENDING"
+- repo_name="{project_name}"
+- gitea_url="{gitea_url}"
+- run_id, run_url, summary, failed_jobs (if applicable)
+- error_logs: any relevant error messages from failed jobs
+
+Be thorough in reporting what went wrong if CI failed."""
+            
+            # Run the agent with streaming output callback
+            result = await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("tester")
+            )
+            
+            await self.client.close_session(session_id)
+            session_id = None
+            
+            # Get CI result from database (submitted via MCP)
+            ci_result = await get_project_ci_result_json(project_id)
+            
+            if ci_result:
+                status = ci_result.get("status", "PASS")
+                
+                if status == "PASS":
+                    await self._log(project_id, "tester", "CI/CD passed", "output")
+                    await self._emit_event(WorkflowEvent(
+                        type=WorkflowEventType.TEST_PASSED,
+                        agent="tester",
+                        message="CI/CD passed",
+                        data=ci_result
+                    ))
+                    return {"status": "PASS"}
+                elif status == "PENDING":
+                    await self._log(project_id, "tester", "CI/CD still pending", "output")
+                    return {"status": "PENDING"}
+                else:
+                    failed_jobs = ci_result.get("failed_jobs", [])
+                    await self._log(project_id, "tester", f"CI/CD failed: {len(failed_jobs)} jobs failed", "output")
+                    await self._emit_event(WorkflowEvent(
+                        type=WorkflowEventType.TEST_FAILED,
+                        agent="tester",
+                        message=f"CI/CD failed: {ci_result.get('summary', 'Unknown error')}",
+                        data=ci_result
+                    ))
+                    return {"status": "FAIL", "ci_result": ci_result}
+            else:
+                # No explicit CI result - assume pass if no exception
+                await self._log(project_id, "tester", "CI check completed (no explicit result)", "output")
+                return {"status": "PASS"}
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
+            
+            await self._log(project_id, "tester", f"Error checking CI: {error_msg}", "error")
+            await self._emit_event(WorkflowEvent(
+                type=WorkflowEventType.AGENT_ERROR,
+                agent="tester",
+                message=error_msg
+            ))
+            return {"status": "FAIL", "error": error_msg}
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
+    
+    async def run_ci_developer(self, project_id: int, plan: Dict[str, Any]) -> bool:
+        """Run the Developer agent to fix CI/CD issues"""
+        await self._emit_event(WorkflowEvent(
+            type=WorkflowEventType.AGENT_STARTED,
+            agent="developer",
+            message="Fixing CI/CD issues"
+        ))
+        
+        session_id = None
+        try:
+            session_id = await self.client.create_session("developer")
+            
+            prompt = f"""You are working on project_id={project_id}.
+
+The Tester found that Gitea Actions CI/CD failed. Use get_ci_result tool with project_id={project_id} to see the detailed CI failure report.
+
+Fix all the CI/CD issues reported. Common issues include:
+- Test failures
+- Linting errors
+- Build errors
+- Missing dependencies
+- Configuration issues
+
+After fixing, use submit_implementation_status tool with:
+- project_id={project_id}
+- status="fixed"
+- bugs_addressed: list the CI issues you fixed
+- ready_for_testing=True"""
+            
+            # Run the agent with streaming output callback
+            result = await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("developer")
+            )
+            
+            await self.client.close_session(session_id)
+            session_id = None
+            
+            # Verify implementation status was submitted
+            impl_status = await get_project_implementation_status_json(project_id)
+            
+            if impl_status and impl_status.get("ready_for_testing"):
+                await self._log(project_id, "developer", "CI fixes completed", "output")
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.AGENT_COMPLETED,
+                    agent="developer",
+                    message="CI fixes completed",
+                    data=impl_status
+                ))
+                return True
+            else:
+                await self._log(project_id, "developer", "CI fix attempt completed", "output")
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.AGENT_COMPLETED,
+                    agent="developer",
+                    message="CI fix attempt completed"
+                ))
+                return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "API Error" in error_msg or "Auth" in error_msg:
+                error_msg = f"{error_msg} - Please check your OPENCODE_API_KEY environment variable"
+            
+            await self._log(project_id, "developer", f"Error: {error_msg}", "error")
+            await self._emit_event(WorkflowEvent(
+                type=WorkflowEventType.AGENT_ERROR,
+                agent="developer",
+                message=error_msg
+            ))
+            return False
+        finally:
+            if session_id:
+                try:
+                    await self.client.close_session(session_id)
+                except Exception:
+                    pass
+    
+    async def run_evangelist(self, project_id: int, gitea_url: str, project_info: Dict[str, Any]) -> Optional[str]:
         """Run the Evangelist agent to promote on X/Twitter"""
         await self._emit_event(WorkflowEvent(
             type=WorkflowEventType.AGENT_STARTED,
@@ -571,7 +780,9 @@ Use the gitea tools to create and push the repository."""
 
 Project: {project_info.get('title', 'Unknown')}
 Description: {project_info.get('description', '')}
-GitHub: {github_url}
+Gitea Repository: {gitea_url}
+
+IMPORTANT: Use the Gitea URL above (not GitHub). This project is hosted on Gitea.
 
 Use the x_api tools to create and post a compelling tweet under 280 characters with emojis and hashtags."""
             
@@ -719,18 +930,76 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
                 await update_project_status(project_id, "failed")
                 return {"success": False, "project_id": project_id, "error": "Pipeline was stopped"}
             
-            # 4. UPLOADER
+            # 4. UPLOADER -> CI TESTER -> DEVELOPER LOOP
+            # Initial upload
             await update_project_status(project_id, "uploading", current_agent="uploader")
-            github_url = await self.run_uploader(project_id, project_name)
-            if not github_url:
+            gitea_url = await self.run_uploader(project_id, project_name, is_fixing=False)
+            if not gitea_url:
                 await update_project_status(project_id, "failed")
                 return {"success": False, "project_id": project_id, "error": "Uploader failed to upload to Gitea"}
             
-            await update_project_status(project_id, "uploading", github_url=github_url)
+            await update_project_status(project_id, "uploading", gitea_url=gitea_url)
+            
+            # CI/CD verification loop: Uploader -> Tester -> Developer -> Uploader ...
+            ci_iteration = 0
+            max_ci_iterations = 5  # Prevent infinite loops
+            
+            while self._running and ci_iteration < max_ci_iterations:
+                ci_iteration += 1
+                
+                await self._emit_event(WorkflowEvent(
+                    type=WorkflowEventType.ITERATION_STARTED,
+                    message=f"CI/CD verification iteration {ci_iteration}",
+                    data={"ci_iteration": ci_iteration}
+                ))
+                
+                # Clear CI state for new iteration
+                await clear_project_ci_state(project_id)
+                
+                # Tester checks CI/CD status
+                await update_project_status(
+                    project_id, "testing",
+                    current_agent="tester",
+                    ci_test_iterations=ci_iteration
+                )
+                
+                ci_result = await self.run_ci_tester(project_id, project_name, gitea_url)
+                
+                if ci_result.get("status") == "PASS":
+                    logger.info(f"CI/CD passed after {ci_iteration} iteration(s)")
+                    break  # CI passed - proceed to evangelist
+                
+                if ci_result.get("status") == "PENDING":
+                    # CI still running - wait and retry
+                    await asyncio.sleep(10)  # Wait 10 seconds
+                    ci_iteration -= 1  # Don't count this as a fix iteration
+                    continue
+                
+                # CI failed - Developer fixes, then Uploader re-uploads
+                await update_project_status(project_id, "development", current_agent="developer")
+                fix_success = await self.run_ci_developer(project_id, plan)
+                if not fix_success:
+                    continue  # Try again
+                
+                # Re-upload the fixes
+                await update_project_status(project_id, "uploading", current_agent="uploader")
+                gitea_url = await self.run_uploader(project_id, project_name, is_fixing=True)
+                if not gitea_url:
+                    continue  # Try again
+                
+                await update_project_status(project_id, "uploading", gitea_url=gitea_url)
+            
+            if not self._running:
+                await update_project_status(project_id, "failed")
+                return {"success": False, "project_id": project_id, "error": "Pipeline was stopped"}
+            
+            if ci_iteration >= max_ci_iterations:
+                logger.warning(f"CI/CD loop reached max iterations ({max_ci_iterations})")
+                # Continue anyway - let the project complete
             
             # 5. EVANGELIST
             await update_project_status(project_id, "promoting", current_agent="evangelist")
-            x_post_url = await self.run_evangelist(project_id, github_url, idea)
+            x_post_url = await self.run_evangelist(project_id, gitea_url, idea)
             
             if x_post_url:
                 await update_project_status(project_id, "promoting", x_post_url=x_post_url)
@@ -745,8 +1014,9 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
                 data={
                     "project_id": project_id,
                     "project_name": project_name,
-                    "github_url": github_url,
-                    "iterations": iteration
+                    "gitea_url": gitea_url,
+                    "dev_test_iterations": iteration,
+                    "ci_test_iterations": ci_iteration
                 }
             ))
             
@@ -754,9 +1024,10 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
                 "success": True,
                 "project_id": project_id,
                 "project_name": project_name,
-                "github_url": github_url,
+                "gitea_url": gitea_url,
                 "x_post_url": x_post_url,
                 "dev_test_iterations": iteration,
+                "ci_test_iterations": ci_iteration,
                 "error": None
             }
             

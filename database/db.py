@@ -226,9 +226,10 @@ async def get_active_project(session: Optional[AsyncSession] = None) -> Optional
 async def update_project_status(
     project_id: int,
     status: str,
-    github_url: Optional[str] = None,
+    gitea_url: Optional[str] = None,
     x_post_url: Optional[str] = None,
     dev_test_iterations: Optional[int] = None,
+    ci_test_iterations: Optional[int] = None,
     current_agent: Optional[str] = None,
     plan_json: Optional[dict] = None,
     idea_json: Optional[dict] = None,
@@ -241,12 +242,14 @@ async def update_project_status(
         project = result.scalar_one_or_none()
         if project:
             project.status = status if isinstance(status, str) else status.value
-            if github_url is not None:
-                project.github_url = github_url
+            if gitea_url is not None:
+                project.gitea_url = gitea_url
             if x_post_url is not None:
                 project.x_post_url = x_post_url
             if dev_test_iterations is not None:
                 project.dev_test_iterations = dev_test_iterations
+            if ci_test_iterations is not None:
+                project.ci_test_iterations = ci_test_iterations
             if current_agent is not None:
                 project.current_agent = current_agent
             if plan_json is not None:
@@ -483,6 +486,90 @@ async def clear_project_devtest_state(project_id: int, session: Optional[AsyncSe
         if project:
             project.test_result_json = None
             project.implementation_status_json = None
+            return True
+        return False
+    
+    if session:
+        return await _clear(session)
+    else:
+        async with get_db() as s:
+            return await _clear(s)
+
+
+async def get_project_ci_result_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted CI result JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.ci_result_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def set_project_ci_result_json(project_id: int, ci_result_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the CI result JSON for a project (called by MCP submit_ci_result)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.ci_result_json = ci_result_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
+
+async def get_project_upload_status_json(project_id: int, session: Optional[AsyncSession] = None) -> Optional[dict]:
+    """Get the submitted upload status JSON for a project"""
+    async def _get(s: AsyncSession) -> Optional[dict]:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            return project.upload_status_json
+        return None
+    
+    if session:
+        return await _get(session)
+    else:
+        async with get_db() as s:
+            return await _get(s)
+
+
+async def set_project_upload_status_json(project_id: int, upload_status_json: dict, session: Optional[AsyncSession] = None) -> bool:
+    """Set the upload status JSON for a project (called by MCP submit_upload_status)"""
+    async def _set(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.upload_status_json = upload_status_json
+            return True
+        return False
+    
+    if session:
+        return await _set(session)
+    else:
+        async with get_db() as s:
+            return await _set(s)
+
+
+async def clear_project_ci_state(project_id: int, session: Optional[AsyncSession] = None) -> bool:
+    """Clear CI result and upload status for a new CI iteration"""
+    async def _clear(s: AsyncSession) -> bool:
+        result = await s.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        if project:
+            project.ci_result_json = None
+            project.upload_status_json = None
             return True
         return False
     

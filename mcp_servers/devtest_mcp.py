@@ -350,6 +350,231 @@ async def get_project_context(project_id: int) -> dict:
 
 
 @mcp.tool()
+async def submit_ci_result(
+    project_id: int,
+    status: str,
+    repo_name: str,
+    gitea_url: str,
+    run_id: int = None,
+    run_url: str = None,
+    summary: str = None,
+    failed_jobs: list[dict] = None,
+    error_logs: str = None
+) -> dict:
+    """
+    Submit CI/CD (Gitea Actions) result after checking workflow status.
+    Use this tool to report CI/CD status to Developer for fixes if needed.
+    
+    Args:
+        project_id: The project ID (required)
+        status: CI status - "PASS", "FAIL", or "PENDING" (required)
+        repo_name: Repository name (required)
+        gitea_url: Repository URL on Gitea (required)
+        run_id: Workflow run ID (if available)
+        run_url: URL to the workflow run (if available)
+        summary: Brief summary of CI result
+        failed_jobs: List of failed jobs with {name, conclusion, steps} format
+        error_logs: Relevant error logs or messages
+    
+    Returns:
+        Dictionary with success status
+    
+    Example for PASS:
+        submit_ci_result(
+            project_id=1,
+            status="PASS",
+            repo_name="my-project",
+            gitea_url="https://gitea.example.com/user/my-project",
+            summary="All CI checks passed successfully"
+        )
+    
+    Example for FAIL:
+        submit_ci_result(
+            project_id=1,
+            status="FAIL",
+            repo_name="my-project",
+            gitea_url="https://gitea.example.com/user/my-project",
+            run_id=123,
+            run_url="https://gitea.example.com/user/my-project/actions/runs/123",
+            summary="CI failed: test job failed",
+            failed_jobs=[{"name": "test", "conclusion": "failure", "steps": [...]}],
+            error_logs="Error: pytest failed with exit code 1"
+        )
+    """
+    try:
+        await _init_db_if_needed()
+        from database.db import set_project_ci_result_json
+        
+        # Validate status
+        if status not in ("PASS", "FAIL", "PENDING"):
+            return {"success": False, "error": "status must be 'PASS', 'FAIL', or 'PENDING'"}
+        
+        # Build CI result data
+        ci_result_data = {
+            "status": status,
+            "repo_name": repo_name,
+            "gitea_url": gitea_url,
+            "run_id": run_id,
+            "run_url": run_url,
+            "summary": summary or "",
+            "failed_jobs": failed_jobs or [],
+            "error_logs": error_logs or "",
+            "submitted_at": datetime.utcnow().isoformat(),
+        }
+        
+        # Save to database
+        success = await set_project_ci_result_json(project_id, ci_result_data)
+        
+        if success:
+            logger.info(f"CI result submitted for project {project_id}: {status}")
+            return {
+                "success": True,
+                "message": f"CI result '{status}' submitted successfully",
+                "needs_fix": status == "FAIL"
+            }
+        else:
+            logger.error(f"Project {project_id} not found")
+            return {"success": False, "error": f"Project {project_id} not found"}
+    
+    except Exception as e:
+        logger.error(f"Error submitting CI result: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_ci_result(project_id: int) -> dict:
+    """
+    Get the latest CI/CD result for a project. Use this to see if CI passed or failed.
+    
+    Args:
+        project_id: The project ID to get CI result for (required)
+    
+    Returns:
+        Dictionary with CI result data including status, failed jobs, and error logs
+    """
+    try:
+        await _init_db_if_needed()
+        from database.db import get_project_ci_result_json
+        
+        ci_result = await get_project_ci_result_json(project_id)
+        
+        if ci_result:
+            return {
+                "success": True,
+                "ci_result": ci_result
+            }
+        else:
+            return {
+                "success": True,
+                "ci_result": None,
+                "message": "No CI result found for this project"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error getting CI result: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def submit_upload_status(
+    project_id: int,
+    status: str,
+    repo_name: str,
+    gitea_url: str,
+    files_pushed: list[str] = None,
+    commit_sha: str = None,
+    message: str = None
+) -> dict:
+    """
+    Submit upload status after pushing code to Gitea.
+    Use this to inform Tester that code has been uploaded and needs CI check.
+    
+    Args:
+        project_id: The project ID (required)
+        status: Upload status - "completed", "failed", or "in_progress" (required)
+        repo_name: Repository name (required)
+        gitea_url: Repository URL on Gitea (required)
+        files_pushed: List of files that were pushed
+        commit_sha: Commit SHA of the push
+        message: Any additional message
+    
+    Returns:
+        Dictionary with success status
+    """
+    try:
+        await _init_db_if_needed()
+        from database.db import set_project_upload_status_json
+        
+        # Validate status
+        valid_statuses = ("completed", "failed", "in_progress")
+        if status not in valid_statuses:
+            return {"success": False, "error": f"status must be one of: {valid_statuses}"}
+        
+        # Build upload status data
+        upload_status_data = {
+            "status": status,
+            "repo_name": repo_name,
+            "gitea_url": gitea_url,
+            "files_pushed": files_pushed or [],
+            "commit_sha": commit_sha or "",
+            "message": message or "",
+            "submitted_at": datetime.utcnow().isoformat(),
+        }
+        
+        # Save to database
+        success = await set_project_upload_status_json(project_id, upload_status_data)
+        
+        if success:
+            logger.info(f"Upload status submitted for project {project_id}: {status}")
+            return {
+                "success": True,
+                "message": f"Upload status '{status}' submitted successfully"
+            }
+        else:
+            logger.error(f"Project {project_id} not found")
+            return {"success": False, "error": f"Project {project_id} not found"}
+    
+    except Exception as e:
+        logger.error(f"Error submitting upload status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_upload_status(project_id: int) -> dict:
+    """
+    Get the latest upload status for a project.
+    Use this to see what the Uploader did and get the Gitea repository URL.
+    
+    Args:
+        project_id: The project ID to get upload status for (required)
+    
+    Returns:
+        Dictionary with upload status data including repo URL
+    """
+    try:
+        await _init_db_if_needed()
+        from database.db import get_project_upload_status_json
+        
+        upload_status = await get_project_upload_status_json(project_id)
+        
+        if upload_status:
+            return {
+                "success": True,
+                "upload_status": upload_status
+            }
+        else:
+            return {
+                "success": True,
+                "upload_status": None,
+                "message": "No upload status found for this project"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error getting upload status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
 async def clear_devtest_state(project_id: int) -> dict:
     """
     Clear test result and implementation status for a new dev-test iteration.
@@ -375,6 +600,35 @@ async def clear_devtest_state(project_id: int) -> dict:
     
     except Exception as e:
         logger.error(f"Error clearing devtest state: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def clear_ci_state(project_id: int) -> dict:
+    """
+    Clear CI result and upload status for a new CI iteration.
+    Use this at the start of each Uploader-Tester-Developer CI loop iteration.
+    
+    Args:
+        project_id: The project ID to clear CI state for (required)
+    
+    Returns:
+        Dictionary with success status
+    """
+    try:
+        await _init_db_if_needed()
+        from database.db import clear_project_ci_state
+        
+        success = await clear_project_ci_state(project_id)
+        
+        if success:
+            logger.info(f"CI state cleared for project {project_id}")
+            return {"success": True, "message": "CI state cleared for new iteration"}
+        else:
+            return {"success": False, "error": f"Project {project_id} not found"}
+    
+    except Exception as e:
+        logger.error(f"Error clearing CI state: {e}")
         return {"success": False, "error": str(e)}
 
 

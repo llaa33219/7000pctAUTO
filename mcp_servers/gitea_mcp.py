@@ -317,6 +317,250 @@ async def setup_actions(repo: str, workflow_content: str, workflow_name: str = "
 
 
 @mcp.tool()
+async def get_workflow_runs(repo: str, status: str = None, branch: str = None, limit: int = 10) -> dict:
+    """
+    Get workflow runs (Gitea Actions) for a repository.
+    
+    Args:
+        repo: Repository name (username/repo or just repo name)
+        status: Filter by status (queued, in_progress, success, failure, cancelled, skipped, timedout)
+        branch: Filter by branch name
+        limit: Maximum number of runs to return (default 10, max 100)
+    
+    Returns:
+        Dictionary with workflow runs list
+    """
+    if not GITEA_TOKEN:
+        return {"success": False, "error": "Gitea token not configured"}
+    
+    try:
+        # Determine owner and repo name
+        if "/" in repo:
+            owner, repo_name = repo.split("/", 1)
+        else:
+            owner = await get_gitea_username()
+            repo_name = repo
+        
+        if not owner:
+            return {"success": False, "error": "Could not determine repository owner"}
+        
+        async with httpx.AsyncClient(
+            base_url=get_api_base_url(),
+            headers=get_auth_headers(),
+            timeout=30.0,
+        ) as client:
+            params = {"per_page": min(limit, 100)}
+            if status:
+                params["status"] = status
+            if branch:
+                params["branch"] = branch
+            
+            response = await client.get(
+                f"/repos/{owner}/{repo_name}/actions/runs",
+                params=params
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                runs = data.get("workflow_runs", data) if isinstance(data, dict) else data
+                
+                # Simplify the runs data
+                simplified_runs = []
+                for run in (runs if isinstance(runs, list) else []):
+                    simplified_runs.append({
+                        "id": run.get("id"),
+                        "name": run.get("display_title") or run.get("name"),
+                        "status": run.get("status"),
+                        "conclusion": run.get("conclusion"),
+                        "branch": run.get("head_branch"),
+                        "commit_sha": run.get("head_sha", "")[:7],
+                        "started_at": run.get("run_started_at"),
+                        "url": f"{GITEA_URL}/{owner}/{repo_name}/actions/runs/{run.get('id')}"
+                    })
+                
+                return {
+                    "success": True,
+                    "repo": f"{owner}/{repo_name}",
+                    "runs": simplified_runs,
+                    "total": len(simplified_runs)
+                }
+            else:
+                error_msg = response.json().get("message", response.text)
+                return {"success": False, "error": error_msg}
+    
+    except Exception as e:
+        logger.error(f"Error getting workflow runs: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_latest_workflow_status(repo: str, branch: str = "main") -> dict:
+    """
+    Get the status of the latest workflow run for a repository.
+    Use this to check if CI/CD passed or failed after uploading code.
+    
+    Args:
+        repo: Repository name (username/repo or just repo name)
+        branch: Branch to check (default "main")
+    
+    Returns:
+        Dictionary with latest run status (passed/failed/pending/none)
+    """
+    if not GITEA_TOKEN:
+        return {"success": False, "error": "Gitea token not configured"}
+    
+    try:
+        # Determine owner and repo name
+        if "/" in repo:
+            owner, repo_name = repo.split("/", 1)
+        else:
+            owner = await get_gitea_username()
+            repo_name = repo
+        
+        if not owner:
+            return {"success": False, "error": "Could not determine repository owner"}
+        
+        async with httpx.AsyncClient(
+            base_url=get_api_base_url(),
+            headers=get_auth_headers(),
+            timeout=30.0,
+        ) as client:
+            response = await client.get(
+                f"/repos/{owner}/{repo_name}/actions/runs",
+                params={"branch": branch, "per_page": 1}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                runs = data.get("workflow_runs", data) if isinstance(data, dict) else data
+                
+                if not runs or (isinstance(runs, list) and len(runs) == 0):
+                    return {
+                        "success": True,
+                        "status": "none",
+                        "message": "No workflow runs found",
+                        "repo": f"{owner}/{repo_name}"
+                    }
+                
+                latest_run = runs[0] if isinstance(runs, list) else runs
+                run_status = latest_run.get("status", "unknown")
+                conclusion = latest_run.get("conclusion")
+                
+                # Determine overall status
+                if run_status in ("queued", "in_progress", "waiting"):
+                    overall_status = "pending"
+                elif conclusion == "success":
+                    overall_status = "passed"
+                elif conclusion in ("failure", "timedout", "action_required"):
+                    overall_status = "failed"
+                elif conclusion in ("cancelled", "skipped"):
+                    overall_status = "cancelled"
+                else:
+                    overall_status = "unknown"
+                
+                return {
+                    "success": True,
+                    "status": overall_status,
+                    "run_status": run_status,
+                    "conclusion": conclusion,
+                    "run_id": latest_run.get("id"),
+                    "run_name": latest_run.get("display_title") or latest_run.get("name"),
+                    "branch": latest_run.get("head_branch"),
+                    "commit_sha": latest_run.get("head_sha", "")[:7],
+                    "url": f"{GITEA_URL}/{owner}/{repo_name}/actions/runs/{latest_run.get('id')}",
+                    "repo": f"{owner}/{repo_name}"
+                }
+            elif response.status_code == 404:
+                return {
+                    "success": True,
+                    "status": "none",
+                    "message": "Actions not enabled or no runs found",
+                    "repo": f"{owner}/{repo_name}"
+                }
+            else:
+                error_msg = response.json().get("message", response.text)
+                return {"success": False, "error": error_msg}
+    
+    except Exception as e:
+        logger.error(f"Error getting latest workflow status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_workflow_run_jobs(repo: str, run_id: int) -> dict:
+    """
+    Get jobs and their status for a specific workflow run.
+    Use this to see which specific jobs failed in a CI/CD run.
+    
+    Args:
+        repo: Repository name (username/repo or just repo name)
+        run_id: Workflow run ID
+    
+    Returns:
+        Dictionary with job details including status and log URLs
+    """
+    if not GITEA_TOKEN:
+        return {"success": False, "error": "Gitea token not configured"}
+    
+    try:
+        # Determine owner and repo name
+        if "/" in repo:
+            owner, repo_name = repo.split("/", 1)
+        else:
+            owner = await get_gitea_username()
+            repo_name = repo
+        
+        if not owner:
+            return {"success": False, "error": "Could not determine repository owner"}
+        
+        async with httpx.AsyncClient(
+            base_url=get_api_base_url(),
+            headers=get_auth_headers(),
+            timeout=30.0,
+        ) as client:
+            response = await client.get(
+                f"/repos/{owner}/{repo_name}/actions/runs/{run_id}/jobs"
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                jobs = data.get("jobs", data) if isinstance(data, dict) else data
+                
+                simplified_jobs = []
+                for job in (jobs if isinstance(jobs, list) else []):
+                    simplified_jobs.append({
+                        "id": job.get("id"),
+                        "name": job.get("name"),
+                        "status": job.get("status"),
+                        "conclusion": job.get("conclusion"),
+                        "started_at": job.get("started_at"),
+                        "completed_at": job.get("completed_at"),
+                        "steps": [
+                            {
+                                "name": step.get("name"),
+                                "status": step.get("status"),
+                                "conclusion": step.get("conclusion")
+                            }
+                            for step in job.get("steps", [])
+                        ]
+                    })
+                
+                return {
+                    "success": True,
+                    "run_id": run_id,
+                    "repo": f"{owner}/{repo_name}",
+                    "jobs": simplified_jobs
+                }
+            else:
+                error_msg = response.json().get("message", response.text)
+                return {"success": False, "error": error_msg}
+    
+    except Exception as e:
+        logger.error(f"Error getting workflow run jobs: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
 async def get_repo_info(repo: str) -> dict:
     """
     Get repository information.
