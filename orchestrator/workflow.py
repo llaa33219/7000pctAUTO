@@ -100,6 +100,10 @@ class WorkflowOrchestrator:
     
     async def _emit_event(self, event: WorkflowEvent):
         """Emit event to all listeners and web dashboard"""
+        # Log agent_output events for debugging
+        if event.type == WorkflowEventType.AGENT_OUTPUT:
+            logger.debug(f"Emitting AGENT_OUTPUT: agent={event.agent}, message_len={len(event.message) if event.message else 0}")
+        
         # Emit to local listeners
         for listener in self._event_listeners:
             try:
@@ -113,12 +117,17 @@ class WorkflowOrchestrator:
         # Emit to web dashboard SSE broadcaster
         try:
             from web.app import event_broadcaster
-            await event_broadcaster.broadcast({
+            event_data = {
                 "type": event.type.value,
                 "agent": event.agent,
                 "message": event.message,
                 "data": event.data,
-            })
+            }
+            await event_broadcaster.broadcast(event_data)
+            
+            # Log successful broadcast for agent_output
+            if event.type == WorkflowEventType.AGENT_OUTPUT:
+                logger.debug(f"Broadcasted AGENT_OUTPUT to SSE: agent={event.agent}")
         except ImportError:
             pass  # Web module not available
         except Exception as e:

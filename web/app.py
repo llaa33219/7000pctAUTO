@@ -300,8 +300,16 @@ async def stream_events(request: Request):
                         "data": json.dumps(event),
                     }
                 except asyncio.TimeoutError:
-                    # Send heartbeat/status update
+                    # Send heartbeat/status update with DB data for accuracy
                     status = await get_system_status_async()
+                    db_data = await get_database_stats()
+                    
+                    # Use DB active_project for accurate current state (DB is source of truth)
+                    if db_data.get("active_project"):
+                        status["current_project"] = db_data["active_project"]
+                        status["current_agent"] = db_data["active_project"].get("current_agent")
+                        status["dev_test_iterations"] = db_data["active_project"].get("dev_test_iterations", 0)
+                    
                     yield {
                         "event": "heartbeat",
                         "data": json.dumps(status),

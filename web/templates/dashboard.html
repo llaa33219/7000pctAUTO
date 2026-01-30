@@ -955,7 +955,7 @@
             maxReconnectAttempts: 10,
             agents: ['ideator', 'planner', 'developer', 'tester', 'uploader', 'evangelist'],
             lastKnownAgent: null,  // Track last known agent to prevent unwanted resets
-            lastKnownIterations: 0,  // Track last known iteration count to prevent unwanted resets
+
             currentAgentOutput: '',  // Current agent's streaming output
             currentAgent: null,  // Currently active agent
             isStreaming: false,  // Whether we're currently streaming output
@@ -1076,6 +1076,7 @@
 
                 this.eventSource.addEventListener('agent_output', (e) => {
                     const data = JSON.parse(e.data);
+                    console.log('🔵 SSE agent_output event received:', data.agent, data.message?.substring(0, 50));
                     this.handleAgentOutput(data);
                 });
 
@@ -1168,9 +1169,8 @@
                     this.updateProject(data.current_project);
                 }
 
-                // Only update iteration count if there's an active project or if the value is meaningful
-                // This prevents heartbeats from resetting the count to 0 when no project is active
-                if (data.dev_test_iterations !== undefined && data.dev_test_iterations > 0) {
+                // Update iteration count from DB (source of truth)
+                if (data.dev_test_iterations !== undefined) {
                     this.updateIterationCount(data.dev_test_iterations);
                 }
             },
@@ -1272,7 +1272,6 @@
             },
 
             updateIterationCount(count) {
-                this.lastKnownIterations = count;
                 document.getElementById('iteration-count').textContent = count;
             },
 
@@ -1472,7 +1471,6 @@
                 document.getElementById('pipeline-progress').style.width = '0';
                 document.getElementById('pipeline-stage').textContent = 'Idle';
                 document.getElementById('iteration-count').textContent = '0';
-                this.lastKnownIterations = 0;
 
                 // Reset main output display
                 const container = document.getElementById('agent-output-main');
