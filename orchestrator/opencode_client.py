@@ -328,6 +328,7 @@ class OpenCodeClient:
         Send a message with true real-time streaming output.
         
         Reuses the stream_response method and forwards chunks to the callback.
+        ALWAYS ensures output_callback is called at least once with content.
         
         Args:
             session_id: Session ID from create_session
@@ -338,55 +339,64 @@ class OpenCodeClient:
             Dict with "content" (full response)
         """
         agent_name = self._sessions[session_id]["agent"]
-        logger.info(f"Sending streaming message to session {session_id} (agent: {agent_name})")
+        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id} ({agent_name}): Starting _send_message_streaming")
         
         # Collect all streamed content
         full_content = []
         chunk_count = 0
         callback_success_count = 0
         
-        logger.info(f"Session {session_id}: Starting streaming with output_callback")
-        
         try:
             # Reuse existing stream_response method for DRY
+            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Calling stream_response...")
             async for chunk in self.stream_response(session_id, message):
                 if chunk:
                     chunk_count += 1
                     full_content.append(chunk)
+                    logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Got chunk {chunk_count} ({len(chunk)} chars)")
                     
                     # Stream chunk to callback in real-time
                     try:
                         await output_callback(chunk)
                         callback_success_count += 1
+                        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Callback succeeded for chunk {chunk_count}")
                     except Exception as e:
-                        logger.warning(f"Session {session_id}: output_callback failed for chunk {chunk_count}: {e}")
+                        logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: output_callback FAILED for chunk {chunk_count}: {e}")
             
-            logger.info(f"Session {session_id}: Streaming completed ({chunk_count} chunks, {callback_success_count} callbacks succeeded)")
+            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: stream_response finished ({chunk_count} chunks, {callback_success_count} callbacks)")
             
         except OpenCodeError:
+            logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: OpenCodeError during streaming")
             raise
         except Exception as e:
-            logger.error(f"Streaming error for session {session_id}: {e}")
+            logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Exception during streaming: {e}")
             # If streaming failed, fall back to fetching final content
         
-        # Return streamed content, or fetch final if streaming failed
+        # ALWAYS fetch final content from API to ensure we have complete response
+        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fetching final content from API...")
+        client = await self._get_client()
+        final_content = await self._fetch_message_content(client, session_id)
+        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Final content fetched ({len(final_content) if final_content else 0} chars)")
+        
+        # Use streamed content if available, otherwise use fetched content
         if full_content:
             content = ''.join(full_content)
+            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Using streamed content ({len(content)} chars from {chunk_count} chunks)")
         else:
-            # Streaming failed - fetch final content as fallback
-            logger.info(f"Session {session_id}: Streaming produced no content, fetching final content as fallback")
-            client = await self._get_client()
-            content = await self._fetch_message_content(client, session_id)
-            
-            # Call output_callback with fallback content so user sees something
-            if content:
-                logger.info(f"Session {session_id}: Sending fallback content via output_callback ({len(content)} chars)")
-                try:
-                    await output_callback(content)
-                except Exception as e:
-                    logger.warning(f"Session {session_id}: Fallback output_callback failed: {e}")
+            content = final_content
+            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Using fetched content (streaming produced nothing)")
         
-        logger.info(f"Received response for session {session_id} ({len(content)} chars)")
+        # CRITICAL: If streaming didn't call callback enough, call it now with final content
+        # This ensures the agent_output event is ALWAYS emitted
+        if callback_success_count == 0 and content:
+            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: No callbacks succeeded during streaming, sending final content via callback ({len(content)} chars)")
+            try:
+                await output_callback(content)
+                logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fallback callback SUCCEEDED")
+            except Exception as e:
+                logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fallback callback FAILED: {e}")
+        
+        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: _send_message_streaming complete, returning {len(content) if content else 0} chars")
         
         return {"content": content}
     
@@ -1030,7 +1040,7 @@ class OpenCodeClient:
         try:
             client = await self._get_client()
             
-            logger.info(f"Starting SSE stream for session {session_id} (agent: {agent_name})")
+            logger.info(f"[STREAM_TRACE] Session {session_id} ({agent_name}): Starting stream_response")
             
             # Build message parts
             parts: List[Dict[str, Any]] = [
@@ -1044,6 +1054,8 @@ class OpenCodeClient:
             text_chunk_count = 0
             raw_yield_count = 0
             
+            logger.info(f"[STREAM_TRACE] Session {session_id}: Calling with_streaming_response.chat()...")
+            
             # Use streaming response with mode parameter
             # max_tokens is configured in opencode.json model options
             async with client.session.with_streaming_response.chat(
@@ -1055,6 +1067,8 @@ class OpenCodeClient:
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
             ) as response:
+                logger.info(f"[STREAM_TRACE] Session {session_id}: Streaming response context opened, iterating lines...")
+                
                 # Use iter_lines() for reliable SSE parsing (SSE is line-based protocol)
                 # iter_text() can split lines mid-way causing JSON parse failures
                 async for raw_line in response.iter_lines():
@@ -1063,16 +1077,16 @@ class OpenCodeClient:
                     if not raw_line:
                         continue
                     
-                    # Log every line at DEBUG level (use INFO only for summaries)
-                    line_preview = raw_line[:150] if len(raw_line) > 150 else raw_line
-                    logger.debug(f"Session {session_id}: Stream line {chunk_count}: {line_preview}")
+                    # Log every line at INFO level for debugging
+                    line_preview = raw_line[:200] if len(raw_line) > 200 else raw_line
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: Line {chunk_count}: {line_preview}")
                     
                     # Try to parse as SSE and extract text content
                     text = self._parse_sse_line(raw_line)
                     
                     if text:
                         text_chunk_count += 1
-                        logger.debug(f"Session {session_id}: Parsed text ({len(text)} chars)")
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Parsed SSE text ({len(text)} chars): {text[:100]}...")
                         yield text
                     else:
                         # SSE parsing failed - try to yield raw line as fallback
@@ -1085,16 +1099,17 @@ class OpenCodeClient:
                             # Skip 'data:' prefix lines that couldn't be parsed (they had no JSON)
                             if not stripped_line.startswith('data:') or len(stripped_line) > 6:
                                 raw_yield_count += 1
-                                logger.debug(f"Session {session_id}: Yielding raw line as fallback")
+                                logger.info(f"[STREAM_TRACE] Session {session_id}: Yielding raw line as fallback: {stripped_line[:100]}")
                                 yield stripped_line
             
-            logger.info(f"Session {session_id}: SSE stream completed ({chunk_count} lines, {text_chunk_count} parsed, {raw_yield_count} raw)")
+            logger.info(f"[STREAM_TRACE] Session {session_id}: stream_response COMPLETE ({chunk_count} lines received, {text_chunk_count} parsed as SSE, {raw_yield_count} raw fallback)")
                         
         except OpenCodeError:
+            logger.error(f"[STREAM_TRACE] Session {session_id}: OpenCodeError in stream_response")
             raise
         except Exception as e:
             server_url = self.base_url or "default"
-            logger.error(f"Failed to stream response for session {session_id}: {e}")
+            logger.error(f"[STREAM_TRACE] Session {session_id}: Exception in stream_response: {e}")
             raise OpenCodeError(
                 f"Failed to stream response (is OpenCode server running at {server_url}?): {e}"
             )

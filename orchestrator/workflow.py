@@ -81,12 +81,17 @@ class WorkflowOrchestrator:
             Async callback function that emits AGENT_OUTPUT events
         """
         async def output_callback(content: str):
+            logger.info(f"[OUTPUT_CALLBACK] Agent '{agent_name}': Received content ({len(content) if content else 0} chars)")
+            if content:
+                preview = content[:100] if len(content) > 100 else content
+                logger.info(f"[OUTPUT_CALLBACK] Agent '{agent_name}': Content preview: {preview}...")
             await self._emit_event(WorkflowEvent(
                 type=WorkflowEventType.AGENT_OUTPUT,
                 agent=agent_name,
                 message=content,
                 data={"streaming": True}
             ))
+            logger.info(f"[OUTPUT_CALLBACK] Agent '{agent_name}': Event emitted")
         return output_callback
     
     def add_event_listener(self, listener: Callable[[WorkflowEvent], None]):
@@ -100,10 +105,12 @@ class WorkflowOrchestrator:
     
     async def _emit_event(self, event: WorkflowEvent):
         """Emit event to all listeners and web dashboard"""
-        # Log agent_output events for debugging (info level for visibility)
+        # Log all events for debugging
         if event.type == WorkflowEventType.AGENT_OUTPUT:
             preview = event.message[:100] if event.message else 'empty'
-            logger.info(f"Emitting AGENT_OUTPUT: agent={event.agent}, len={len(event.message) if event.message else 0}, preview={preview}...")
+            logger.info(f"[EMIT_EVENT] AGENT_OUTPUT: agent={event.agent}, len={len(event.message) if event.message else 0}, preview={preview}...")
+        else:
+            logger.info(f"[EMIT_EVENT] {event.type.value}: agent={event.agent}, message={event.message[:50] if event.message else 'none'}...")
         
         # Emit to local listeners
         for listener in self._event_listeners:
@@ -113,7 +120,7 @@ class WorkflowOrchestrator:
                 else:
                     listener(event)
             except Exception as e:
-                logger.error(f"Event listener error: {e}")
+                logger.error(f"[EMIT_EVENT] Local listener error: {e}")
         
         # Emit to web dashboard SSE broadcaster
         try:
@@ -124,15 +131,13 @@ class WorkflowOrchestrator:
                 "message": event.message,
                 "data": event.data,
             }
+            logger.info(f"[EMIT_EVENT] Broadcasting to SSE: type={event.type.value}, agent={event.agent}")
             await event_broadcaster.broadcast(event_data)
-            
-            # Log successful broadcast for agent_output
-            if event.type == WorkflowEventType.AGENT_OUTPUT:
-                logger.debug(f"Broadcasted AGENT_OUTPUT to SSE: agent={event.agent}")
+            logger.info(f"[EMIT_EVENT] Broadcast SUCCESS: type={event.type.value}")
         except ImportError:
-            pass  # Web module not available
+            logger.warning(f"[EMIT_EVENT] Web module not available, cannot broadcast")
         except Exception as e:
-            logger.debug(f"Web event broadcast error: {e}")
+            logger.error(f"[EMIT_EVENT] Broadcast FAILED: {e}")
     
     async def _log(self, project_id: int, agent: str, message: str, log_type: str = "info"):
         """Log agent activity to database and emit event"""

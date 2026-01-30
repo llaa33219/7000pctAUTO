@@ -6,12 +6,16 @@ Read-only interface with SSE streaming for live updates.
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Dict, Any, List
 from collections import deque
 
 from fastapi import FastAPI, Request
+
+# Module-level logger for SSE broadcasting
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,16 +57,31 @@ class EventBroadcaster:
     async def broadcast(self, event: Dict[str, Any]):
         """Broadcast an event to all subscribers."""
         event["timestamp"] = datetime.utcnow().isoformat()
+        event_type = event.get("type", "unknown")
+        
+        # Log agent_output events specifically for debugging
+        if event_type == "agent_output":
+            agent = event.get("agent", "unknown")
+            msg_len = len(event.get("message", "")) if event.get("message") else 0
+            msg_preview = event.get("message", "")[:100] if event.get("message") else "empty"
+            logger.info(f"[SSE_BROADCAST] agent_output: agent={agent}, len={msg_len}, preview={msg_preview}...")
+        
         async with self._lock:
+            subscriber_count = len(self._subscribers)
             self._history.append(event)
             dead_subscribers = []
+            sent_count = 0
             for q in self._subscribers:
                 try:
                     q.put_nowait(event)
+                    sent_count += 1
                 except asyncio.QueueFull:
                     dead_subscribers.append(q)
             for dead in dead_subscribers:
                 self._subscribers.remove(dead)
+            
+            if event_type == "agent_output":
+                logger.info(f"[SSE_BROADCAST] Sent to {sent_count}/{subscriber_count} subscribers, {len(dead_subscribers)} dead")
         
         # Update current state tracking
         if event.get("type") in ("agent_started", "status", "heartbeat"):
