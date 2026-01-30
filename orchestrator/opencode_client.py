@@ -325,10 +325,11 @@ class OpenCodeClient:
         output_callback: Callable[[str], Awaitable[None]]
     ) -> Dict[str, Any]:
         """
-        Send a message with true real-time streaming output.
+        Send a message with polling-based streaming output.
         
-        Reuses the stream_response method and forwards chunks to the callback.
-        ALWAYS ensures output_callback is called at least once with content.
+        OpenCode SDK's session.chat() doesn't support real-time streaming.
+        Instead, we use polling via _wait_for_completion which calls the
+        output_callback whenever new content is detected.
         
         Args:
             session_id: Session ID from create_session
@@ -338,65 +339,48 @@ class OpenCodeClient:
         Returns:
             Dict with "content" (full response)
         """
-        agent_name = self._sessions[session_id]["agent"]
-        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id} ({agent_name}): Starting _send_message_streaming")
+        session_data = self._sessions[session_id]
+        agent_name = session_data["agent"]
         
-        # Collect all streamed content
-        full_content = []
-        chunk_count = 0
-        callback_success_count = 0
+        logger.info(f"Session {session_id} ({agent_name}): Starting streaming message")
         
-        try:
-            # Reuse existing stream_response method for DRY
-            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Calling stream_response...")
-            async for chunk in self.stream_response(session_id, message):
-                if chunk:
-                    chunk_count += 1
-                    full_content.append(chunk)
-                    logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Got chunk {chunk_count} ({len(chunk)} chars)")
-                    
-                    # Stream chunk to callback in real-time
-                    try:
-                        await output_callback(chunk)
-                        callback_success_count += 1
-                        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Callback succeeded for chunk {chunk_count}")
-                    except Exception as e:
-                        logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: output_callback FAILED for chunk {chunk_count}: {e}")
-            
-            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: stream_response finished ({chunk_count} chunks, {callback_success_count} callbacks)")
-            
-        except OpenCodeError:
-            logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: OpenCodeError during streaming")
-            raise
-        except Exception as e:
-            logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Exception during streaming: {e}")
-            # If streaming failed, fall back to fetching final content
-        
-        # ALWAYS fetch final content from API to ensure we have complete response
-        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fetching final content from API...")
         client = await self._get_client()
-        final_content = await self._fetch_message_content(client, session_id)
-        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Final content fetched ({len(final_content) if final_content else 0} chars)")
         
-        # Use streamed content if available, otherwise use fetched content
-        if full_content:
-            content = ''.join(full_content)
-            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Using streamed content ({len(content)} chars from {chunk_count} chunks)")
-        else:
-            content = final_content
-            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Using fetched content (streaming produced nothing)")
+        # Build message parts
+        parts: List[Dict[str, Any]] = [
+            {"type": "text", "text": message}
+        ]
         
-        # CRITICAL: If streaming didn't call callback enough, call it now with final content
-        # This ensures the agent_output event is ALWAYS emitted
-        if callback_success_count == 0 and content:
-            logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: No callbacks succeeded during streaming, sending final content via callback ({len(content)} chars)")
-            try:
-                await output_callback(content)
-                logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fallback callback SUCCEEDED")
-            except Exception as e:
-                logger.error(f"[AGENT_OUTPUT_TRACE] Session {session_id}: Fallback callback FAILED: {e}")
+        # Enable all MCP tools
+        tools: Dict[str, bool] = {"*": True}
         
-        logger.info(f"[AGENT_OUTPUT_TRACE] Session {session_id}: _send_message_streaming complete, returning {len(content) if content else 0} chars")
+        # Send chat message - this returns immediately, agent runs async
+        response = await client.session.chat(
+            session_id,
+            model_id=self.model_id,
+            provider_id=self.provider_id,
+            parts=parts,
+            mode=agent_name,
+            system=session_data["system_prompt"],
+            tools=tools,
+        )
+        
+        # Check for errors in the response
+        if hasattr(response, 'error') and response.error:
+            error_msg = str(response.error)
+            logger.error(f"OpenCode response error: {error_msg}")
+            raise OpenCodeError(f"Agent error: {error_msg}")
+        
+        # Poll for completion, streaming content via callback
+        # _wait_for_completion will call output_callback whenever new content is detected
+        await self._wait_for_completion(
+            client, session_id, response, timeout_seconds=120, output_callback=output_callback
+        )
+        
+        # Fetch the final complete content
+        content = await self._fetch_message_content(client, session_id)
+        
+        logger.info(f"Session {session_id}: Streaming complete ({len(content) if content else 0} chars)")
         
         return {"content": content}
     
