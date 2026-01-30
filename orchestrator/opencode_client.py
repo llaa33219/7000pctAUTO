@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncIterator, List
+from typing import Optional, Dict, Any, AsyncIterator, List, Callable, Awaitable
 
 import httpx
 
@@ -225,7 +225,13 @@ class OpenCodeClient:
                 f"Failed to create session (is OpenCode server running at {server_url}?): {e}"
             )
     
-    async def send_message(self, session_id: str, message: str, timeout_seconds: int = 120) -> Dict[str, Any]:
+    async def send_message(
+        self, 
+        session_id: str, 
+        message: str, 
+        timeout_seconds: int = 120,
+        output_callback: Optional[Callable[[str], Awaitable[None]]] = None
+    ) -> Dict[str, Any]:
         """
         Send a message and get response from OpenCode.
         
@@ -233,6 +239,7 @@ class OpenCodeClient:
             session_id: Session ID from create_session
             message: User message to send
             timeout_seconds: Maximum time to wait for agent completion (default 120s)
+            output_callback: Optional async callback to receive streaming output chunks
             
         Returns:
             Dict with "content" (raw response) and "parsed" (extracted JSON)
@@ -282,7 +289,9 @@ class OpenCodeClient:
             # session.chat() returns immediately - agent may still be running
             # Check if response is complete by looking at time.completed
             # If not complete, poll until agent finishes
-            await self._wait_for_completion(client, session_id, response, timeout_seconds)
+            await self._wait_for_completion(
+                client, session_id, response, timeout_seconds, output_callback
+            )
             
             # Now fetch the actual message content
             content = await self._fetch_message_content(client, session_id)
@@ -363,13 +372,15 @@ class OpenCodeClient:
         client: Any, 
         session_id: str, 
         initial_response: Any,
-        timeout_seconds: int
+        timeout_seconds: int,
+        output_callback: Optional[Callable[[str], Awaitable[None]]] = None
     ) -> None:
         """
-        Wait for agent to complete processing.
+        Wait for agent to complete processing while streaming output.
         
         The session.chat() method returns immediately with an AssistantMessage.
         We need to poll session.messages() until the message is complete.
+        During polling, we stream any new output via the callback.
         
         Completion is determined by:
         1. status == "completed"
@@ -381,6 +392,7 @@ class OpenCodeClient:
             session_id: Session ID
             initial_response: Initial AssistantMessage from session.chat()
             timeout_seconds: Maximum time to wait for completion
+            output_callback: Optional async callback to receive streaming output
         """
         # Extract message info - could be nested under .info (dict or object)
         initial_info = _safe_get(initial_response, 'info', initial_response)
@@ -409,6 +421,9 @@ class OpenCodeClient:
         # Poll for completion
         poll_interval = 1.0  # seconds
         max_polls = int(timeout_seconds / poll_interval)
+        
+        # Track last seen content for streaming
+        last_content_length = 0
         
         logger.info(f"Session {session_id}: Agent still running (message: {message_id}), polling for completion...")
         
@@ -445,6 +460,17 @@ class OpenCodeClient:
                             break
                 
                 if target_message:
+                    # Stream new content via callback
+                    if output_callback:
+                        current_content = self._extract_message_text(target_message)
+                        if len(current_content) > last_content_length:
+                            new_content = current_content[last_content_length:]
+                            last_content_length = len(current_content)
+                            try:
+                                await output_callback(new_content)
+                            except Exception as e:
+                                logger.debug(f"Output callback error: {e}")
+                    
                     info = _safe_get(target_message, 'info')
                     if info:
                         # Check for errors in the message
@@ -470,6 +496,44 @@ class OpenCodeClient:
         # Timeout reached
         logger.warning(f"Session {session_id}: Timeout after {timeout_seconds}s waiting for agent completion")
         raise OpenCodeError(f"Agent timed out after {timeout_seconds} seconds")
+    
+    def _extract_message_text(self, message: Any) -> str:
+        """
+        Extract text content from a message object.
+        
+        Args:
+            message: Message object from session.messages()
+            
+        Returns:
+            Text content extracted from the message
+        """
+        texts = []
+        parts = _safe_get(message, 'parts') or []
+        for part in parts:
+            if _safe_get(part, 'type') == 'text':
+                text = _safe_get(part, 'text', '')
+                if text:
+                    texts.append(text)
+        
+        if texts:
+            return '\n'.join(texts)
+        
+        # Fallback: try model_dump
+        if hasattr(message, 'model_dump'):
+            try:
+                dump = message.model_dump()
+                parts_data = dump.get('parts', [])
+                for part_data in parts_data:
+                    if isinstance(part_data, dict) and part_data.get('type') == 'text':
+                        text = part_data.get('text', '')
+                        if text:
+                            texts.append(text)
+                if texts:
+                    return '\n'.join(texts)
+            except Exception:
+                pass
+        
+        return ''
     
     def _check_response_for_error(self, response: Any, context: str = "") -> None:
         """

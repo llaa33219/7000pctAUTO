@@ -474,12 +474,19 @@
         }
 
         .agent-output-display-content {
-            font-size: 16px;
-            line-height: 1.8;
+            font-size: 14px;
+            line-height: 1.7;
             color: var(--text-primary);
             white-space: pre-wrap;
             word-break: break-word;
             min-height: 200px;
+            max-height: 350px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            padding: 16px;
+            background: var(--bg-white);
+            border-radius: 8px;
+            border: 1px solid var(--border-light);
         }
 
         .agent-output-display-content.streaming::after {
@@ -1066,6 +1073,11 @@
                     this.updateIterationCount(data.data?.iteration || 0);
                 });
 
+                this.eventSource.addEventListener('agent_output', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.handleAgentOutput(data);
+                });
+
                 this.eventSource.onerror = () => {
                     console.error('❌ SSE error');
                     this.updateConnectionStatus('disconnected');
@@ -1141,7 +1153,9 @@
                     status.textContent = 'Idle';
                 }
 
-                if (data.current_agent) {
+                // Only update pipeline if we have a valid agent
+                // Don't call updatePipeline with null/undefined to prevent unwanted resets
+                if (data.current_agent && typeof data.current_agent === 'string') {
                     this.updatePipeline(data.current_agent);
                 }
 
@@ -1180,43 +1194,41 @@
                     ${project.current_agent ? `<div class="project-meta">Current Agent: <strong>${project.current_agent}</strong></div>` : ''}
                 `;
 
-                // Update pipeline
-                if (project.status) {
-                    const agent = this.statusToAgent[project.status];
-                    if (agent) {
-                        this.updatePipeline(agent);
-                    }
+                // Update pipeline based on status, but prefer current_agent if available
+                if (project.current_agent) {
+                    this.updatePipeline(project.current_agent);
+                } else if (project.status && this.statusToAgent[project.status]) {
+                    this.updatePipeline(this.statusToAgent[project.status]);
                 }
             },
 
             updatePipeline(currentAgent) {
+                // Guard against null/undefined/empty agent names
+                if (!currentAgent || typeof currentAgent !== 'string') {
+                    return; // Don't update pipeline with invalid agent
+                }
+
                 const pipelineStage = document.getElementById('pipeline-stage');
                 const progressBar = document.getElementById('pipeline-progress');
 
-                let activeIndex = this.agents.indexOf(currentAgent);
+                let activeIndex = this.agents.indexOf(currentAgent.toLowerCase());
                 
                 if (activeIndex < 0) {
                     // Check if it's a completed state
-                    if (currentAgent === 'completed') {
+                    if (currentAgent.toLowerCase() === 'completed') {
                         activeIndex = this.agents.length;
                         this.lastKnownAgent = 'completed';
                     } else if (this.lastKnownAgent) {
                         // Unknown agent - preserve last known state instead of resetting
-                        const lastIndex = this.agents.indexOf(this.lastKnownAgent);
-                        if (lastIndex >= 0) {
-                            activeIndex = lastIndex;
-                        } else if (this.lastKnownAgent === 'completed') {
-                            activeIndex = this.agents.length;
-                        }
-                        // Don't update - keep current state
+                        // This prevents pipeline from jumping back to ideator on status updates
                         return;
                     } else {
-                        // No last known agent and unknown current - truly idle
-                        activeIndex = -1;
+                        // No last known agent and unknown current - truly idle, but don't reset
+                        return;
                     }
                 } else {
                     // Valid agent - update last known
-                    this.lastKnownAgent = currentAgent;
+                    this.lastKnownAgent = currentAgent.toLowerCase();
                 }
 
                 // Update stage label
@@ -1287,48 +1299,6 @@
                     const last = container.querySelector('.activity-item:last-child');
                     if (last) last.remove();
                 }
-
-                // Update main agent output if this is from the current agent
-                this.updateMainAgentOutput(data);
-            },
-
-            updateMainAgentOutput(data) {
-                const container = document.getElementById('agent-output-main');
-                const statusBadge = document.getElementById('output-status');
-                const agentName = data.agent || 'SYSTEM';
-                
-                // Skip system messages for main output
-                if (agentName === 'SYSTEM') return;
-
-                const iconSrc = this.agentIcons[agentName.toLowerCase()];
-                const fallbackEmoji = this.fallbackEmojis[agentName.toLowerCase()] || '🤖';
-                
-                let iconHtml;
-                if (iconSrc) {
-                    iconHtml = `<img src="${iconSrc}" alt="${agentName}" onerror="this.outerHTML='${fallbackEmoji}'">`;
-                } else {
-                    iconHtml = fallbackEmoji;
-                }
-
-                // Update current agent tracking
-                this.currentAgent = agentName;
-                this.currentAgentOutput = data.message || '';
-                this.isStreaming = true;
-
-                // Update status badge
-                statusBadge.textContent = 'Running';
-                statusBadge.className = 'card-badge active';
-
-                container.innerHTML = `
-                    <div class="agent-output-display-header">
-                        <div class="agent-output-display-icon">${iconHtml}</div>
-                        <div class="agent-output-display-info">
-                            <div class="agent-output-display-name">${agentName}</div>
-                            <div class="agent-output-display-status running">Processing...</div>
-                        </div>
-                    </div>
-                    <div class="agent-output-display-content streaming">${this.escapeHtml(this.currentAgentOutput)}</div>
-                `;
             },
 
             setAgentIdle() {
@@ -1351,12 +1321,75 @@
 
             handleAgentStarted(data) {
                 this.updatePipeline(data.agent);
+                
+                // Reset output for new agent
+                this.currentAgent = data.agent;
+                this.currentAgentOutput = '';
+                this.isStreaming = true;
+                this.initAgentOutputDisplay(data.agent);
+                
                 this.addActivityItem({
                     agent: data.agent,
                     message: data.message || `${data.agent} started`,
                     type: 'info',
                     timestamp: data.timestamp
                 });
+            },
+
+            handleAgentOutput(data) {
+                // Append streaming output content
+                if (data.agent && data.message) {
+                    if (data.agent !== this.currentAgent) {
+                        // New agent, reset display
+                        this.currentAgent = data.agent;
+                        this.currentAgentOutput = '';
+                        this.initAgentOutputDisplay(data.agent);
+                    }
+                    
+                    this.currentAgentOutput += data.message;
+                    this.updateAgentOutputContent();
+                }
+            },
+
+            initAgentOutputDisplay(agentName) {
+                const container = document.getElementById('agent-output-main');
+                const statusBadge = document.getElementById('output-status');
+                
+                const iconSrc = this.agentIcons[agentName.toLowerCase()];
+                const fallbackEmoji = this.fallbackEmojis[agentName.toLowerCase()] || '🤖';
+                
+                let iconHtml;
+                if (iconSrc) {
+                    iconHtml = `<img src="${iconSrc}" alt="${agentName}" onerror="this.outerHTML='${fallbackEmoji}'">`;
+                } else {
+                    iconHtml = fallbackEmoji;
+                }
+
+                statusBadge.textContent = 'Running';
+                statusBadge.className = 'card-badge active';
+
+                container.innerHTML = `
+                    <div class="agent-output-display-header">
+                        <div class="agent-output-display-icon">${iconHtml}</div>
+                        <div class="agent-output-display-info">
+                            <div class="agent-output-display-name">${agentName}</div>
+                            <div class="agent-output-display-status running">Processing...</div>
+                        </div>
+                    </div>
+                    <div class="agent-output-display-content streaming" id="agent-output-content"></div>
+                `;
+            },
+
+            updateAgentOutputContent() {
+                const contentEl = document.getElementById('agent-output-content');
+                if (contentEl) {
+                    contentEl.textContent = this.currentAgentOutput;
+                    // Auto-scroll to bottom
+                    const container = document.getElementById('agent-output-main');
+                    if (container) {
+                        container.scrollTop = container.scrollHeight;
+                    }
+                }
             },
 
             handleAgentCompleted(data) {

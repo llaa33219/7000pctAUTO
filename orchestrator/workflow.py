@@ -27,6 +27,7 @@ class WorkflowEventType(str, Enum):
     """Types of workflow events for SSE"""
     WORKFLOW_STARTED = "workflow_started"
     AGENT_STARTED = "agent_started"
+    AGENT_OUTPUT = "agent_output"
     AGENT_COMPLETED = "agent_completed"
     AGENT_ERROR = "agent_error"
     TEST_PASSED = "test_passed"
@@ -68,6 +69,25 @@ class WorkflowOrchestrator:
         self.client = OpenCodeClient()
         self._running = False
         self._event_listeners: List[Callable[[WorkflowEvent], None]] = []
+    
+    def _create_output_callback(self, agent_name: str):
+        """
+        Create an async callback for streaming agent output.
+        
+        Args:
+            agent_name: Name of the agent for the output event
+            
+        Returns:
+            Async callback function that emits AGENT_OUTPUT events
+        """
+        async def output_callback(content: str):
+            await self._emit_event(WorkflowEvent(
+                type=WorkflowEventType.AGENT_OUTPUT,
+                agent=agent_name,
+                message=content,
+                data={"streaming": True}
+            ))
+        return output_callback
     
     def add_event_listener(self, listener: Callable[[WorkflowEvent], None]):
         """Add event listener for SSE streaming"""
@@ -147,8 +167,12 @@ Then check the database for existing ideas to avoid duplicates.
 
 When you have finalized your idea, use the submit_idea tool with project_id={project_id} to save it."""
             
-            # Run the agent - it will call submit_idea which saves to DB
-            await self.client.send_message(session_id, prompt)
+            # Run the agent with streaming output callback
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("ideator")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
@@ -216,8 +240,12 @@ Research the best technologies and create a comprehensive plan including:
 
 When you have finalized your plan, use the submit_plan tool with project_id={project_id} to save it."""
             
-            # Run the agent - it will call submit_plan which saves to DB
-            await self.client.send_message(session_id, prompt)
+            # Run the agent with streaming output callback
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("planner")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
@@ -297,7 +325,12 @@ When done, use the submit_implementation_status tool with:
 - dependencies_installed: list the packages you installed
 - ready_for_testing=True"""
             
-            await self.client.send_message(session_id, prompt)
+            # Run the agent with streaming output callback (single call for both branches)
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("developer")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
@@ -374,7 +407,11 @@ When done, use the submit_test_result tool with:
 - bugs: list of bugs found (if any)
 - ready_for_upload: true only if all tests pass"""
             
-            await self.client.send_message(session_id, prompt)
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("tester")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
@@ -455,7 +492,11 @@ When done, use the submit_test_result tool with:
 
 Use the gitea tools to create and push the repository."""
             
-            await self.client.send_message(session_id, prompt)
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("uploader")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
@@ -512,7 +553,11 @@ GitHub: {github_url}
 
 Use the x_api tools to create and post a compelling tweet under 280 characters with emojis and hashtags."""
             
-            await self.client.send_message(session_id, prompt)
+            await self.client.send_message(
+                session_id, 
+                prompt,
+                output_callback=self._create_output_callback("evangelist")
+            )
             await self.client.close_session(session_id)
             session_id = None
             
