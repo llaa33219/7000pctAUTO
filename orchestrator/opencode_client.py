@@ -1017,19 +1017,129 @@ class OpenCodeClient:
         
         return None
 
+    def _extract_text_from_chunk(self, chunk: Any) -> Optional[str]:
+        """
+        Extract text content from a streaming chunk.
+        
+        OpenCode SDK returns Part objects during streaming with various formats:
+        - Dict with type="text" and text field
+        - Object with .type and .text attributes
+        - Parts array format
+        - Delta format (OpenAI style)
+        
+        Args:
+            chunk: Streaming chunk from session.chat()
+            
+        Returns:
+            Extracted text or None
+        """
+        if chunk is None:
+            return None
+        
+        # String chunk - return as-is
+        if isinstance(chunk, str):
+            return chunk if chunk.strip() else None
+        
+        # Dict format
+        if isinstance(chunk, dict):
+            # Direct text part: {"type": "text", "text": "..."}
+            if chunk.get('type') == 'text' and 'text' in chunk:
+                return chunk['text']
+            
+            # Direct text field
+            if 'text' in chunk and isinstance(chunk['text'], str):
+                return chunk['text']
+            
+            # Direct content field
+            if 'content' in chunk and isinstance(chunk['content'], str):
+                return chunk['content']
+            
+            # Parts array: {"parts": [{"type": "text", "text": "..."}]}
+            parts = chunk.get('parts')
+            if isinstance(parts, list):
+                texts = []
+                for part in parts:
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        text = part.get('text')
+                        if text:
+                            texts.append(text)
+                if texts:
+                    return ''.join(texts)
+            
+            # Delta format: {"delta": {"content": "..."}}
+            delta = chunk.get('delta')
+            if isinstance(delta, dict):
+                content = delta.get('content') or delta.get('text')
+                if isinstance(content, str):
+                    return content
+            
+            # Choices format: {"choices": [{"delta": {"content": "..."}}]}
+            choices = chunk.get('choices')
+            if isinstance(choices, list) and choices:
+                first = choices[0]
+                if isinstance(first, dict):
+                    delta = first.get('delta', {})
+                    if isinstance(delta, dict):
+                        content = delta.get('content')
+                        if isinstance(content, str):
+                            return content
+            
+            return None
+        
+        # Object with attributes (Part object from SDK)
+        # Check for type="text" with text attribute
+        chunk_type = getattr(chunk, 'type', None)
+        if chunk_type == 'text':
+            text = getattr(chunk, 'text', None)
+            if text:
+                return str(text)
+        
+        # Try direct text attribute
+        text = getattr(chunk, 'text', None)
+        if text:
+            return str(text)
+        
+        # Try content attribute
+        content = getattr(chunk, 'content', None)
+        if content:
+            return str(content)
+        
+        # Try parts attribute
+        parts = getattr(chunk, 'parts', None)
+        if parts and hasattr(parts, '__iter__'):
+            texts = []
+            for part in parts:
+                part_type = _safe_get(part, 'type')
+                if part_type == 'text':
+                    text = _safe_get(part, 'text')
+                    if text:
+                        texts.append(str(text))
+            if texts:
+                return ''.join(texts)
+        
+        # Try model_dump for Pydantic models
+        if hasattr(chunk, 'model_dump'):
+            try:
+                return self._extract_text_from_chunk(chunk.model_dump())
+            except Exception:
+                pass
+        
+        return None
+
     async def stream_response(self, session_id: str, message: str) -> AsyncIterator[str]:
         """
         Stream response from agent.
         
-        Handles SSE (Server-Sent Events) format from OpenCode SDK and extracts
-        actual text content from the JSON payloads.
+        Tries two approaches:
+        1. Direct async iteration on session.chat() - native SDK streaming
+        2. Fallback to with_streaming_response with SSE parsing
         
         Args:
             session_id: Session ID from create_session
             message: User message to send
             
         Yields:
-            Response text chunks (parsed from SSE JSON)
+            Response text chunks
         """
         if session_id not in self._sessions:
             raise OpenCodeError(f"Session {session_id} not found")
@@ -1052,36 +1162,121 @@ class OpenCodeClient:
             
             chunk_count = 0
             text_chunk_count = 0
+            
+            # APPROACH 1: Try direct async iteration on session.chat()
+            # OpenCode SDK may support: async for chunk in client.session.chat(...)
+            logger.info(f"[STREAM_TRACE] Session {session_id}: Trying direct async iteration on session.chat()...")
+            
+            approach1_yielded_data = False
+            
+            try:
+                chat_result = client.session.chat(
+                    session_id,
+                    model_id=self.model_id,
+                    provider_id=self.provider_id,
+                    parts=parts,
+                    mode=session_data["agent"],
+                    system=session_data["system_prompt"],
+                    tools=tools,
+                )
+                
+                # Check if result is async iterable (streaming supported)
+                if hasattr(chat_result, '__aiter__'):
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: session.chat() returned async iterable, streaming directly...")
+                    
+                    async for chunk in chat_result:
+                        chunk_count += 1
+                        
+                        # Log chunk info for debugging
+                        chunk_type = type(chunk).__name__
+                        chunk_preview = str(chunk)[:200] if chunk else 'None'
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Chunk {chunk_count} (type={chunk_type}): {chunk_preview}")
+                        
+                        # Extract text from chunk
+                        text = self._extract_text_from_chunk(chunk)
+                        
+                        if text:
+                            text_chunk_count += 1
+                            approach1_yielded_data = True
+                            logger.info(f"[STREAM_TRACE] Session {session_id}: Extracted text ({len(text)} chars): {text[:100]}...")
+                            yield text
+                    
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: Direct streaming COMPLETE via APPROACH 1 ({chunk_count} chunks, {text_chunk_count} with text)")
+                    return
+                
+                # If not async iterable, it might be awaitable (single response)
+                elif hasattr(chat_result, '__await__'):
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: session.chat() returned awaitable, awaiting...")
+                    response = await chat_result
+                    
+                    # Check if response is async iterable
+                    if hasattr(response, '__aiter__'):
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Awaited response is async iterable, streaming...")
+                        async for chunk in response:
+                            chunk_count += 1
+                            text = self._extract_text_from_chunk(chunk)
+                            if text:
+                                text_chunk_count += 1
+                                approach1_yielded_data = True
+                                logger.info(f"[STREAM_TRACE] Session {session_id}: Extracted text ({len(text)} chars)")
+                                yield text
+                        
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Awaited streaming COMPLETE via APPROACH 1 ({chunk_count} chunks, {text_chunk_count} with text)")
+                        return
+                    else:
+                        # Single response object - extract text
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Got single response via APPROACH 1, extracting text...")
+                        text = self._extract_text_from_chunk(response)
+                        if text:
+                            approach1_yielded_data = True
+                            yield text
+                        logger.info(f"[STREAM_TRACE] Session {session_id}: Single response COMPLETE via APPROACH 1")
+                        return
+                else:
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: session.chat() returned non-iterable: {type(chat_result).__name__}")
+                    
+            except TypeError as e:
+                # TypeError usually means it's not async iterable
+                if approach1_yielded_data:
+                    logger.warning(f"[STREAM_TRACE] Session {session_id}: APPROACH 1 failed after yielding {text_chunk_count} chunks (TypeError: {e}), NOT retrying to avoid duplicates")
+                    return
+                logger.info(f"[STREAM_TRACE] Session {session_id}: Direct iteration failed (TypeError: {e}), trying SSE fallback...")
+            except Exception as e:
+                if approach1_yielded_data:
+                    logger.warning(f"[STREAM_TRACE] Session {session_id}: APPROACH 1 failed after yielding {text_chunk_count} chunks ({type(e).__name__}: {e}), NOT retrying to avoid duplicates")
+                    return
+                logger.warning(f"[STREAM_TRACE] Session {session_id}: Direct iteration failed ({type(e).__name__}: {e}), trying SSE fallback...")
+            
+            # APPROACH 2: Fallback to with_streaming_response with SSE parsing
+            logger.info(f"[STREAM_TRACE] Session {session_id}: Using with_streaming_response fallback...")
+            
+            chunk_count = 0
+            text_chunk_count = 0
             raw_yield_count = 0
             
-            logger.info(f"[STREAM_TRACE] Session {session_id}: Calling with_streaming_response.chat()...")
-            
-            # Use streaming response with mode parameter
-            # max_tokens is configured in opencode.json model options
             async with client.session.with_streaming_response.chat(
                 session_id,
                 model_id=self.model_id,
                 provider_id=self.provider_id,
                 parts=parts,
-                mode=session_data["agent"],  # Specify agent mode from opencode.json
-                system=session_data["system_prompt"],  # Fallback system prompt
+                mode=session_data["agent"],
+                system=session_data["system_prompt"],
                 tools=tools,
             ) as response:
-                logger.info(f"[STREAM_TRACE] Session {session_id}: Streaming response context opened, iterating lines...")
+                # Log response status for debugging
+                status_code = getattr(response, 'status_code', None)
+                logger.info(f"[STREAM_TRACE] Session {session_id}: SSE streaming context opened (status_code={status_code}), iterating lines...")
                 
-                # Use iter_lines() for reliable SSE parsing (SSE is line-based protocol)
-                # iter_text() can split lines mid-way causing JSON parse failures
                 async for raw_line in response.iter_lines():
                     chunk_count += 1
                     
                     if not raw_line:
                         continue
                     
-                    # Log every line at INFO level for debugging
                     line_preview = raw_line[:200] if len(raw_line) > 200 else raw_line
-                    logger.info(f"[STREAM_TRACE] Session {session_id}: Line {chunk_count}: {line_preview}")
+                    logger.info(f"[STREAM_TRACE] Session {session_id}: SSE Line {chunk_count}: {line_preview}")
                     
-                    # Try to parse as SSE and extract text content
+                    # Try to parse as SSE
                     text = self._parse_sse_line(raw_line)
                     
                     if text:
@@ -1089,20 +1284,15 @@ class OpenCodeClient:
                         logger.info(f"[STREAM_TRACE] Session {session_id}: Parsed SSE text ({len(text)} chars): {text[:100]}...")
                         yield text
                     else:
-                        # SSE parsing failed - try to yield raw line as fallback
-                        # This ensures we always transmit something even if format is unexpected
+                        # Fallback: yield raw content if it looks meaningful
                         stripped_line = raw_line.strip()
-                        
-                        # Skip known non-content lines
                         if stripped_line and not stripped_line.startswith(('event:', 'id:', 'retry:', ':')):
-                            # Check if it looks like it might be content (not just SSE metadata)
-                            # Skip 'data:' prefix lines that couldn't be parsed (they had no JSON)
                             if not stripped_line.startswith('data:') or len(stripped_line) > 6:
                                 raw_yield_count += 1
-                                logger.info(f"[STREAM_TRACE] Session {session_id}: Yielding raw line as fallback: {stripped_line[:100]}")
+                                logger.info(f"[STREAM_TRACE] Session {session_id}: Yielding raw line: {stripped_line[:100]}")
                                 yield stripped_line
             
-            logger.info(f"[STREAM_TRACE] Session {session_id}: stream_response COMPLETE ({chunk_count} lines received, {text_chunk_count} parsed as SSE, {raw_yield_count} raw fallback)")
+            logger.info(f"[STREAM_TRACE] Session {session_id}: SSE streaming COMPLETE via APPROACH 2 ({chunk_count} lines, {text_chunk_count} parsed, {raw_yield_count} raw)")
                         
         except OpenCodeError:
             logger.error(f"[STREAM_TRACE] Session {session_id}: OpenCodeError in stream_response")
