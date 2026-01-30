@@ -300,19 +300,46 @@ async def stream_events(request: Request):
                         "data": json.dumps(event),
                     }
                 except asyncio.TimeoutError:
-                    # Send heartbeat/status update with DB data for accuracy
+                    # Send separate events for each data type (cleaner and easier to debug)
                     status = await get_system_status_async()
                     db_data = await get_database_stats()
                     
-                    # Use DB active_project for accurate current state (DB is source of truth)
-                    if db_data.get("active_project"):
-                        status["current_project"] = db_data["active_project"]
-                        status["current_agent"] = db_data["active_project"].get("current_agent")
-                        status["dev_test_iterations"] = db_data["active_project"].get("dev_test_iterations", 0)
+                    # 1. Status update - orchestrator running state
+                    yield {
+                        "event": "status_update",
+                        "data": json.dumps({
+                            "orchestrator_running": status.get("orchestrator_running", False),
+                            "timestamp": status.get("timestamp"),
+                        }),
+                    }
                     
+                    # 2. Project update - current project data from DB (source of truth)
+                    active_project = db_data.get("active_project")
+                    if active_project:
+                        yield {
+                            "event": "project_update",
+                            "data": json.dumps(active_project),
+                        }
+                    
+                    # 3. Agent update - current agent
+                    current_agent = active_project.get("current_agent") if active_project else None
+                    if current_agent:
+                        yield {
+                            "event": "agent_update",
+                            "data": json.dumps({"agent": current_agent}),
+                        }
+                    
+                    # 4. Iteration update - dev/test iteration count
+                    iterations = active_project.get("dev_test_iterations", 0) if active_project else 0
+                    yield {
+                        "event": "iteration_update",
+                        "data": json.dumps({"iterations": iterations}),
+                    }
+                    
+                    # 5. Heartbeat - just a ping to confirm connection is alive
                     yield {
                         "event": "heartbeat",
-                        "data": json.dumps(status),
+                        "data": json.dumps({"timestamp": datetime.utcnow().isoformat()}),
                     }
                     
         finally:

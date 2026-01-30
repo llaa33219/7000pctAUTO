@@ -663,9 +663,9 @@ Use the x_api tools to create and post a compelling tweet under 280 characters w
                 return {"success": False, "project_id": project_id, "error": "Planner failed to create plan"}
             
             await self.state_manager.update_state(project_id, plan=plan)
-            await update_project_status(project_id, "planning", plan_json=plan)
             
             project_name = plan.get("project_name", idea.get("title", "project"))
+            await update_project_status(project_id, "planning", plan_json=plan, name=project_name)
             
             # 3. DEVELOPER -> TESTER LOOP (INFINITE)
             iteration = 0

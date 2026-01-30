@@ -1033,9 +1033,33 @@
                     this.updateFromStatus(data);
                 });
 
-                this.eventSource.addEventListener('heartbeat', (e) => {
+                // Separate event handlers for cleaner data flow
+                this.eventSource.addEventListener('status_update', (e) => {
                     const data = JSON.parse(e.data);
-                    this.updateOrchestratorStatus(data);
+                    this.handleStatusUpdate(data);
+                });
+
+                this.eventSource.addEventListener('project_update', (e) => {
+                    const data = JSON.parse(e.data);
+                    this.updateProject(data);
+                });
+
+                this.eventSource.addEventListener('agent_update', (e) => {
+                    const data = JSON.parse(e.data);
+                    if (data.agent) {
+                        this.updatePipeline(data.agent);
+                    }
+                });
+
+                this.eventSource.addEventListener('iteration_update', (e) => {
+                    const data = JSON.parse(e.data);
+                    if (data.iterations !== undefined) {
+                        this.updateIterationCount(data.iterations);
+                    }
+                });
+
+                this.eventSource.addEventListener('heartbeat', (e) => {
+                    // Just update the timestamp - heartbeat is now a simple ping
                     this.updateLastUpdate();
                 });
 
@@ -1147,7 +1171,8 @@
                 this.updateLastUpdate();
             },
 
-            updateOrchestratorStatus(data) {
+            // Handle orchestrator status update (running/idle)
+            handleStatusUpdate(data) {
                 const dot = document.getElementById('orchestrator-dot');
                 const status = document.getElementById('orchestrator-status');
 
@@ -1158,9 +1183,14 @@
                     dot.className = 'status-dot idle';
                     status.textContent = 'Idle';
                 }
+            },
+
+            // Legacy handler for bundled status updates (kept for backward compatibility)
+            updateOrchestratorStatus(data) {
+                // Handle orchestrator running state
+                this.handleStatusUpdate(data);
 
                 // Only update pipeline if we have a valid agent
-                // Don't call updatePipeline with null/undefined to prevent unwanted resets
                 if (data.current_agent && typeof data.current_agent === 'string') {
                     this.updatePipeline(data.current_agent);
                 }

@@ -232,6 +232,7 @@ async def update_project_status(
     current_agent: Optional[str] = None,
     plan_json: Optional[dict] = None,
     idea_json: Optional[dict] = None,
+    name: Optional[str] = None,
     session: Optional[AsyncSession] = None
 ) -> bool:
     """Update project status and optional fields"""
@@ -252,6 +253,8 @@ async def update_project_status(
                 project.plan_json = plan_json
             if idea_json is not None:
                 project.idea_json = idea_json
+            if name is not None:
+                project.name = name
             return True
         return False
     
