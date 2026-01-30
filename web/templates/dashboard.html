@@ -955,6 +955,7 @@
             maxReconnectAttempts: 10,
             agents: ['ideator', 'planner', 'developer', 'tester', 'uploader', 'evangelist'],
             lastKnownAgent: null,  // Track last known agent to prevent unwanted resets
+            lastKnownIterations: 0,  // Track last known iteration count to prevent unwanted resets
             currentAgentOutput: '',  // Current agent's streaming output
             currentAgent: null,  // Currently active agent
             isStreaming: false,  // Whether we're currently streaming output
@@ -1127,8 +1128,12 @@
                 }
 
                 // Update activity log (limited to most recent, no animation for initial load)
+                // Logs come in descending order (newest first), so we:
+                // 1. Take the first 10 (most recent)
+                // 2. Reverse them so oldest is processed first
+                // 3. Insert each at top, resulting in newest at top
                 if (data.recent_logs) {
-                    data.recent_logs.slice(-10).forEach(log => {
+                    data.recent_logs.slice(0, 10).reverse().forEach(log => {
                         this.addActivityItem({
                             agent: log.agent_name,
                             message: log.message,
@@ -1163,7 +1168,9 @@
                     this.updateProject(data.current_project);
                 }
 
-                if (data.dev_test_iterations !== undefined) {
+                // Only update iteration count if there's an active project or if the value is meaningful
+                // This prevents heartbeats from resetting the count to 0 when no project is active
+                if (data.dev_test_iterations !== undefined && data.dev_test_iterations > 0) {
                     this.updateIterationCount(data.dev_test_iterations);
                 }
             },
@@ -1265,6 +1272,7 @@
             },
 
             updateIterationCount(count) {
+                this.lastKnownIterations = count;
                 document.getElementById('iteration-count').textContent = count;
             },
 
@@ -1339,12 +1347,16 @@
             },
 
             handleAgentOutput(data) {
+                console.log('📝 Agent output received:', data.agent, data.message?.substring(0, 100));
+                
                 // Append streaming output content
                 if (data.agent && data.message) {
-                    if (data.agent !== this.currentAgent) {
-                        // New agent, reset display
+                    // Always initialize display if not already showing this agent
+                    if (data.agent !== this.currentAgent || !this.isStreaming) {
+                        // New agent or wasn't streaming, initialize display
                         this.currentAgent = data.agent;
                         this.currentAgentOutput = '';
+                        this.isStreaming = true;
                         this.initAgentOutputDisplay(data.agent);
                     }
                     
@@ -1460,6 +1472,7 @@
                 document.getElementById('pipeline-progress').style.width = '0';
                 document.getElementById('pipeline-stage').textContent = 'Idle';
                 document.getElementById('iteration-count').textContent = '0';
+                this.lastKnownIterations = 0;
 
                 // Reset main output display
                 const container = document.getElementById('agent-output-main');
