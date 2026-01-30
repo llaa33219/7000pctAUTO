@@ -1197,7 +1197,9 @@
                 // Update pipeline based on status, but prefer current_agent if available
                 if (project.current_agent) {
                     this.updatePipeline(project.current_agent);
-                } else if (project.status && this.statusToAgent[project.status]) {
+                } else if (!this.lastKnownAgent && project.status && this.statusToAgent[project.status]) {
+                    // Only fall back to status-based agent if we don't have a lastKnownAgent
+                    // This prevents the pipeline from resetting to ideator when server returns incomplete data
                     this.updatePipeline(this.statusToAgent[project.status]);
                 }
             },

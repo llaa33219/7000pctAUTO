@@ -162,6 +162,7 @@ async def get_system_status_async() -> Dict[str, Any]:
                         "id": active_state.project_id,
                         "status": active_state.status,
                         "name": active_state.plan.get("project_name") if active_state.plan else None,
+                        "current_agent": active_state.current_agent,
                     }
                     status["dev_test_iterations"] = active_state.dev_test_iterations
             except Exception:

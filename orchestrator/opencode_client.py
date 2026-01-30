@@ -416,6 +416,14 @@ class OpenCodeClient:
         # Check if initial response is already complete
         if self._is_message_completed(initial_info, f"Session {session_id} initial"):
             logger.info(f"Session {session_id}: Agent already completed in initial response (message: {message_id})")
+            # Still need to stream final content via callback
+            if output_callback:
+                try:
+                    final_content = await self._fetch_message_content(client, session_id)
+                    if final_content:
+                        await output_callback(final_content)
+                except Exception as e:
+                    logger.debug(f"Output callback error on completed message: {e}")
             return
         
         # Poll for completion
