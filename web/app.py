@@ -14,6 +14,7 @@ from collections import deque
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 
@@ -344,6 +345,15 @@ async def broadcast_event(event_type: str, agent: Optional[str] = None,
         "message": message,
         "data": data or {},
     })
+
+
+# =============================================================================
+# Static Files Mount (for images)
+# =============================================================================
+
+images_path = Path(__file__).parent / "images"
+if images_path.exists():
+    app.mount("/images", StaticFiles(directory=str(images_path)), name="images")
 
 
 # Expose for external use

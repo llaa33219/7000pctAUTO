@@ -6,21 +6,33 @@
     <title>7000%AUTO | AI Automation Dashboard</title>
     <style>
         :root {
-            --bg-dark: #0d1117;
-            --bg-card: #161b22;
-            --bg-card-hover: #1c2129;
-            --border: #30363d;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #484f58;
-            --accent-green: #3fb950;
-            --accent-blue: #58a6ff;
-            --accent-purple: #a371f7;
-            --accent-yellow: #d29922;
-            --accent-red: #f85149;
-            --accent-cyan: #39c5cf;
-            --glow-green: rgba(63, 185, 80, 0.4);
-            --glow-blue: rgba(88, 166, 255, 0.4);
+            --bg-white: #ffffff;
+            --bg-light: #f8f9fa;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f0f4f8;
+            --border: #e1e5eb;
+            --border-light: #f0f2f5;
+            --text-primary: #1a1a2e;
+            --text-secondary: #5a6474;
+            --text-muted: #9ca3af;
+            
+            /* Brand Colors */
+            --accent-cyan: #1BC6F5;
+            --accent-lime: #B1EB4E;
+            --accent-purple: #D17DE2;
+            
+            /* Derived Colors */
+            --accent-cyan-light: rgba(27, 198, 245, 0.15);
+            --accent-lime-light: rgba(177, 235, 78, 0.15);
+            --accent-purple-light: rgba(209, 125, 226, 0.15);
+            
+            --glow-cyan: rgba(27, 198, 245, 0.4);
+            --glow-lime: rgba(177, 235, 78, 0.4);
+            --glow-purple: rgba(209, 125, 226, 0.4);
+            
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+            --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
         }
 
         * {
@@ -31,7 +43,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            background: var(--bg-dark);
+            background: var(--bg-white);
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.5;
@@ -43,12 +55,16 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--bg-dark);
+            background: var(--bg-light);
         }
 
         ::-webkit-scrollbar-thumb {
             background: var(--border);
             border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
         }
 
         .container {
@@ -73,10 +89,15 @@
             gap: 16px;
         }
 
+        .logo-img {
+            height: 40px;
+            width: auto;
+        }
+
         .logo-text {
             font-size: 28px;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan));
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -85,10 +106,11 @@
         .logo-badge {
             font-size: 12px;
             padding: 4px 10px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
+            background: var(--accent-lime-light);
+            border: 1px solid var(--accent-lime);
             border-radius: 20px;
-            color: var(--text-secondary);
+            color: #5a8c1a;
+            font-weight: 500;
         }
 
         .status-group {
@@ -113,17 +135,17 @@
         }
 
         .status-dot.running {
-            background: var(--accent-green);
-            box-shadow: 0 0 12px var(--glow-green);
+            background: var(--accent-lime);
+            box-shadow: 0 0 12px var(--glow-lime);
             animation: pulse 2s infinite;
         }
 
         .status-dot.idle {
-            background: var(--accent-yellow);
+            background: var(--accent-cyan);
         }
 
         .status-dot.error {
-            background: var(--accent-red);
+            background: #ef4444;
         }
 
         @keyframes pulse {
@@ -148,8 +170,13 @@
         .card {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 16px;
             overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-md);
         }
 
         .card-header {
@@ -157,7 +184,8 @@
             justify-content: space-between;
             align-items: center;
             padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
+            border-bottom: 1px solid var(--border-light);
+            background: var(--bg-light);
         }
 
         .card-title {
@@ -170,20 +198,31 @@
         }
 
         .card-title-icon {
-            font-size: 16px;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card-title-icon svg {
+            width: 18px;
+            height: 18px;
         }
 
         .card-badge {
             font-size: 12px;
-            padding: 4px 10px;
+            padding: 4px 12px;
             border-radius: 20px;
-            background: var(--bg-dark);
+            background: var(--bg-light);
             color: var(--text-secondary);
+            border: 1px solid var(--border);
         }
 
         .card-badge.active {
-            background: rgba(63, 185, 80, 0.15);
-            color: var(--accent-green);
+            background: var(--accent-lime-light);
+            color: #5a8c1a;
+            border-color: var(--accent-lime);
         }
 
         .card-body {
@@ -204,6 +243,7 @@
             font-size: 20px;
             font-weight: 600;
             margin-bottom: 12px;
+            color: var(--text-primary);
         }
 
         .project-status-badge {
@@ -217,13 +257,13 @@
             text-transform: capitalize;
         }
 
-        .project-status-badge.ideation { background: rgba(163, 113, 247, 0.15); color: var(--accent-purple); }
-        .project-status-badge.planning { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); }
-        .project-status-badge.development { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
-        .project-status-badge.testing { background: rgba(255, 166, 87, 0.15); color: #ffa657; }
-        .project-status-badge.uploading { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
-        .project-status-badge.promoting { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
-        .project-status-badge.completed { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .project-status-badge.ideation { background: var(--accent-purple-light); color: #9b4dca; }
+        .project-status-badge.planning { background: var(--accent-cyan-light); color: #0891b2; }
+        .project-status-badge.development { background: var(--accent-lime-light); color: #5a8c1a; }
+        .project-status-badge.testing { background: rgba(251, 191, 36, 0.15); color: #b45309; }
+        .project-status-badge.uploading { background: var(--accent-cyan-light); color: #0891b2; }
+        .project-status-badge.promoting { background: var(--accent-purple-light); color: #9b4dca; }
+        .project-status-badge.completed { background: var(--accent-lime-light); color: #5a8c1a; }
 
         .project-meta {
             margin-top: 12px;
@@ -239,6 +279,7 @@
         .no-project-icon {
             font-size: 32px;
             margin-bottom: 12px;
+            opacity: 0.5;
         }
 
         /* Agent Pipeline */
@@ -268,12 +309,12 @@
             top: 50%;
             left: 48px;
             height: 3px;
-            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-lime));
             transform: translateY(-50%);
             z-index: 1;
             transition: width 0.5s ease;
             border-radius: 2px;
-            box-shadow: 0 0 10px var(--glow-green);
+            box-shadow: 0 0 10px var(--glow-cyan);
         }
 
         .agent-node {
@@ -286,27 +327,35 @@
         }
 
         .agent-icon {
-            width: 52px;
-            height: 52px;
+            width: 56px;
+            height: 56px;
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 50%;
-            background: var(--bg-dark);
+            background: var(--bg-white);
             border: 3px solid var(--border);
-            font-size: 22px;
             transition: all 0.3s ease;
+            padding: 10px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .agent-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         .agent-node.completed .agent-icon {
-            border-color: var(--accent-green);
-            background: rgba(63, 185, 80, 0.1);
+            border-color: var(--accent-lime);
+            background: var(--accent-lime-light);
+            box-shadow: 0 0 15px var(--glow-lime);
         }
 
         .agent-node.active .agent-icon {
-            border-color: var(--accent-blue);
-            background: rgba(88, 166, 255, 0.15);
-            box-shadow: 0 0 20px var(--glow-blue);
+            border-color: var(--accent-cyan);
+            background: var(--accent-cyan-light);
+            box-shadow: 0 0 20px var(--glow-cyan);
             animation: agent-active 1.5s infinite;
         }
 
@@ -321,14 +370,14 @@
 
         .agent-label {
             font-size: 11px;
-            font-weight: 500;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: var(--text-muted);
         }
 
-        .agent-node.completed .agent-label { color: var(--accent-green); }
-        .agent-node.active .agent-label { color: var(--accent-blue); font-weight: 600; }
+        .agent-node.completed .agent-label { color: #5a8c1a; }
+        .agent-node.active .agent-label { color: var(--accent-cyan); font-weight: 700; }
 
         /* Iteration Counter */
         .iteration-box {
@@ -337,20 +386,22 @@
             justify-content: center;
             gap: 16px;
             padding: 16px;
-            background: var(--bg-dark);
-            border-radius: 8px;
+            background: linear-gradient(135deg, var(--accent-cyan-light), var(--accent-purple-light));
+            border-radius: 12px;
             margin-top: 16px;
+            border: 1px solid var(--border);
         }
 
         .iteration-label {
             font-size: 13px;
             color: var(--text-secondary);
+            font-weight: 500;
         }
 
         .iteration-value {
             font-size: 24px;
             font-weight: 700;
-            color: var(--accent-yellow);
+            color: var(--accent-purple);
             font-variant-numeric: tabular-nums;
         }
 
@@ -365,20 +416,21 @@
         .log-stream {
             flex: 1;
             padding: 12px;
-            background: var(--bg-dark);
-            border-radius: 8px;
+            background: var(--bg-light);
+            border-radius: 12px;
             overflow-y: auto;
             max-height: 500px;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
             font-size: 12px;
             line-height: 1.8;
+            border: 1px solid var(--border-light);
         }
 
         .log-entry {
             display: flex;
             gap: 12px;
             padding: 6px 8px;
-            border-radius: 4px;
+            border-radius: 6px;
             animation: log-slide 0.3s ease;
         }
 
@@ -408,9 +460,9 @@
             word-break: break-word;
         }
 
-        .log-entry.info .log-message { color: var(--accent-green); }
-        .log-entry.error .log-message { color: var(--accent-red); }
-        .log-entry.output .log-message { color: var(--accent-cyan); }
+        .log-entry.info .log-message { color: var(--accent-cyan); }
+        .log-entry.error .log-message { color: #ef4444; }
+        .log-entry.output .log-message { color: #5a8c1a; }
         .log-entry.debug .log-message { color: var(--text-secondary); }
 
         .log-empty {
@@ -422,6 +474,7 @@
         .log-empty-icon {
             font-size: 28px;
             margin-bottom: 8px;
+            opacity: 0.5;
         }
 
         /* Sidebar */
@@ -439,22 +492,29 @@
         }
 
         .stat-item {
-            background: var(--bg-dark);
+            background: var(--bg-light);
             padding: 16px;
-            border-radius: 8px;
+            border-radius: 12px;
             text-align: center;
+            border: 1px solid var(--border-light);
+            transition: all 0.2s ease;
+        }
+
+        .stat-item:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px var(--glow-cyan);
         }
 
         .stat-value {
             font-size: 28px;
             font-weight: 700;
-            color: var(--accent-green);
+            color: var(--accent-lime);
             font-variant-numeric: tabular-nums;
         }
 
-        .stat-value.blue { color: var(--accent-blue); }
+        .stat-value.cyan { color: var(--accent-cyan); }
         .stat-value.purple { color: var(--accent-purple); }
-        .stat-value.yellow { color: var(--accent-yellow); }
+        .stat-value.lime { color: #5a8c1a; }
 
         .stat-label {
             font-size: 11px;
@@ -462,16 +522,18 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-top: 4px;
+            font-weight: 500;
         }
 
         /* Agent Output Card */
         .agent-output {
-            background: var(--bg-dark);
-            border-radius: 8px;
+            background: var(--bg-light);
+            border-radius: 12px;
             padding: 16px;
             min-height: 200px;
             max-height: 400px;
             overflow-y: auto;
+            border: 1px solid var(--border-light);
         }
 
         .agent-output-header {
@@ -484,12 +546,19 @@
         }
 
         .agent-output-icon {
-            font-size: 20px;
+            width: 24px;
+            height: 24px;
+        }
+
+        .agent-output-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         .agent-output-name {
             font-weight: 600;
-            color: var(--accent-blue);
+            color: var(--accent-cyan);
         }
 
         .agent-output-status {
@@ -564,14 +633,15 @@
             font-size: 12px;
             color: var(--text-secondary);
             z-index: 1000;
+            box-shadow: var(--shadow-md);
         }
 
         .connection-status.connected {
-            border-color: var(--accent-green);
+            border-color: var(--accent-lime);
         }
 
         .connection-status.disconnected {
-            border-color: var(--accent-red);
+            border-color: #ef4444;
         }
 
         .connection-dot {
@@ -582,12 +652,12 @@
         }
 
         .connection-status.connected .connection-dot {
-            background: var(--accent-green);
+            background: var(--accent-lime);
             animation: pulse 2s infinite;
         }
 
         .connection-status.disconnected .connection-dot {
-            background: var(--accent-red);
+            background: #ef4444;
         }
     </style>
 </head>
@@ -596,7 +666,8 @@
         <!-- Header -->
         <header class="header">
             <div class="logo">
-                <span class="logo-text">🤖 7000%AUTO</span>
+                <img src="/dashboard/images/Logo.svg" alt="7000%AUTO Logo" class="logo-img" onerror="this.style.display='none'">
+                <span class="logo-text">7000%AUTO</span>
                 <span class="logo-badge">Dashboard v1.0</span>
             </div>
             <div class="status-group">
@@ -617,7 +688,11 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">
-                            <span class="card-title-icon">📡</span>
+                            <span class="card-title-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                            </span>
                             Current Project
                         </span>
                         <span class="card-badge" id="project-badge">No Project</span>
@@ -636,7 +711,11 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">
-                            <span class="card-title-icon">🔄</span>
+                            <span class="card-title-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                            </span>
                             Agent Pipeline
                         </span>
                         <span class="card-badge" id="pipeline-stage">Idle</span>
@@ -646,32 +725,44 @@
                             <div class="pipeline-progress" id="pipeline-progress"></div>
                             
                             <div class="agent-node pending" data-agent="ideator">
-                                <div class="agent-icon">💡</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Ideator.svg" alt="Ideator" onerror="this.parentElement.innerHTML='💡'">
+                                </div>
                                 <span class="agent-label">Ideator</span>
                             </div>
                             
                             <div class="agent-node pending" data-agent="planner">
-                                <div class="agent-icon">📋</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Planner.svg" alt="Planner" onerror="this.parentElement.innerHTML='📋'">
+                                </div>
                                 <span class="agent-label">Planner</span>
                             </div>
                             
                             <div class="agent-node pending" data-agent="developer">
-                                <div class="agent-icon">👨‍💻</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Developer.svg" alt="Developer" onerror="this.parentElement.innerHTML='👨‍💻'">
+                                </div>
                                 <span class="agent-label">Developer</span>
                             </div>
                             
                             <div class="agent-node pending" data-agent="tester">
-                                <div class="agent-icon">🧪</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Tester.svg" alt="Tester" onerror="this.parentElement.innerHTML='🧪'">
+                                </div>
                                 <span class="agent-label">Tester</span>
                             </div>
                             
                             <div class="agent-node pending" data-agent="uploader">
-                                <div class="agent-icon">🚀</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Uploader.svg" alt="Uploader" onerror="this.parentElement.innerHTML='🚀'">
+                                </div>
                                 <span class="agent-label">Uploader</span>
                             </div>
                             
                             <div class="agent-node pending" data-agent="evangelist">
-                                <div class="agent-icon">📣</div>
+                                <div class="agent-icon">
+                                    <img src="/dashboard/images/Evangelist.svg" alt="Evangelist" onerror="this.parentElement.innerHTML='📣'">
+                                </div>
                                 <span class="agent-label">Evangelist</span>
                             </div>
                         </div>
@@ -687,7 +778,11 @@
                 <div class="card log-container">
                     <div class="card-header">
                         <span class="card-title">
-                            <span class="card-title-icon">📜</span>
+                            <span class="card-title-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </span>
                             Real-Time Logs
                         </span>
                         <span class="card-badge" id="log-count">0 entries</span>
@@ -709,7 +804,11 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">
-                            <span class="card-title-icon">📊</span>
+                            <span class="card-title-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                            </span>
                             Statistics
                         </span>
                     </div>
@@ -720,7 +819,7 @@
                                 <div class="stat-label">Total Projects</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value blue" id="stat-completed">0</div>
+                                <div class="stat-value cyan" id="stat-completed">0</div>
                                 <div class="stat-label">Completed</div>
                             </div>
                             <div class="stat-item">
@@ -728,7 +827,7 @@
                                 <div class="stat-label">Ideas</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value yellow" id="stat-inprogress">0</div>
+                                <div class="stat-value lime" id="stat-inprogress">0</div>
                                 <div class="stat-label">In Progress</div>
                             </div>
                         </div>
@@ -739,7 +838,11 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">
-                            <span class="card-title-icon">💬</span>
+                            <span class="card-title-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                </svg>
+                            </span>
                             Agent Output
                         </span>
                     </div>
@@ -777,6 +880,15 @@
                 'testing': 'tester',
                 'uploading': 'uploader',
                 'promoting': 'evangelist'
+            },
+            agentIcons: {
+                'ideator': '/dashboard/images/Ideator.svg',
+                'planner': '/dashboard/images/Planner.svg',
+                'developer': '/dashboard/images/Developer.svg',
+                'tester': '/dashboard/images/Tester.svg',
+                'uploader': '/dashboard/images/Uploader.svg',
+                'evangelist': '/dashboard/images/Evangelist.svg',
+                'SYSTEM': null
             },
 
             init() {
@@ -1085,29 +1197,28 @@
             updateAgentOutput(data) {
                 const container = document.getElementById('agent-output');
                 const agentName = data.agent || 'SYSTEM';
-                const icon = this.getAgentIcon(agentName);
+                const iconSrc = this.agentIcons[agentName.toLowerCase()];
+                
+                let iconHtml;
+                const fallbackEmojis = {
+                    'ideator': '💡', 'planner': '📋', 'developer': '👨‍💻',
+                    'tester': '🧪', 'uploader': '🚀', 'evangelist': '📣'
+                };
+                const fallbackEmoji = fallbackEmojis[agentName.toLowerCase()] || '🤖';
+                if (iconSrc) {
+                    iconHtml = `<img src="${iconSrc}" alt="${agentName}" onerror="this.outerHTML='${fallbackEmoji}'">`;
+                } else {
+                    iconHtml = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>`;
+                }
 
                 container.innerHTML = `
                     <div class="agent-output-header">
-                        <span class="agent-output-icon">${icon}</span>
+                        <span class="agent-output-icon">${iconHtml}</span>
                         <span class="agent-output-name">${agentName}</span>
                         <span class="agent-output-status">${new Date().toLocaleTimeString()}</span>
                     </div>
                     <div class="agent-output-content">${this.escapeHtml(data.message || 'No output')}</div>
                 `;
-            },
-
-            getAgentIcon(agent) {
-                const icons = {
-                    'ideator': '💡',
-                    'planner': '📋',
-                    'developer': '👨‍💻',
-                    'tester': '🧪',
-                    'uploader': '🚀',
-                    'evangelist': '📣',
-                    'SYSTEM': '⚙️'
-                };
-                return icons[agent] || '🤖';
             },
 
             handleAgentStarted(data) {
