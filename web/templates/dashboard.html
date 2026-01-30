@@ -1346,11 +1346,11 @@
             },
 
             handleAgentOutput(data) {
-                console.log('📝 Agent output received:', data.agent, data.message?.substring(0, 100));
+                console.log('📝 Agent output received:', data.agent, 'len:', data.message?.length, 'streaming:', data.data?.streaming);
                 
-                // Append streaming output content
+                // Append streaming output content in real-time
                 if (data.agent && data.message) {
-                    // Always initialize display if not already showing this agent
+                    // Initialize display if not already showing this agent
                     if (data.agent !== this.currentAgent || !this.isStreaming) {
                         // New agent or wasn't streaming, initialize display
                         this.currentAgent = data.agent;
@@ -1359,6 +1359,7 @@
                         this.initAgentOutputDisplay(data.agent);
                     }
                     
+                    // Always append - real-time streaming sends chunks
                     this.currentAgentOutput += data.message;
                     this.updateAgentOutputContent();
                 }

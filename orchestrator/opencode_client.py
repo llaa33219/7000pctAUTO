@@ -251,6 +251,13 @@ class OpenCodeClient:
         agent_name = session_data["agent"]
         
         try:
+            # If output_callback is provided, use true streaming for real-time output
+            if output_callback:
+                return await self._send_message_streaming(
+                    session_id, message, output_callback
+                )
+            
+            # Otherwise, use polling-based approach
             client = await self._get_client()
             
             logger.info(f"Sending message to session {session_id} (agent: {agent_name})")
@@ -290,7 +297,7 @@ class OpenCodeClient:
             # Check if response is complete by looking at time.completed
             # If not complete, poll until agent finishes
             await self._wait_for_completion(
-                client, session_id, response, timeout_seconds, output_callback
+                client, session_id, response, timeout_seconds, None
             )
             
             # Now fetch the actual message content
@@ -308,6 +315,68 @@ class OpenCodeClient:
             raise OpenCodeError(
                 f"Failed to send message (is OpenCode server running at {server_url}?): {e}"
             )
+    
+    async def _send_message_streaming(
+        self,
+        session_id: str,
+        message: str,
+        output_callback: Callable[[str], Awaitable[None]]
+    ) -> Dict[str, Any]:
+        """
+        Send a message with true real-time streaming output.
+        
+        Reuses the stream_response method and forwards chunks to the callback.
+        
+        Args:
+            session_id: Session ID from create_session
+            message: User message to send
+            output_callback: Async callback to receive streaming output chunks
+            
+        Returns:
+            Dict with "content" (full response)
+        """
+        agent_name = self._sessions[session_id]["agent"]
+        logger.info(f"Sending streaming message to session {session_id} (agent: {agent_name})")
+        
+        # Collect all streamed content
+        full_content = []
+        chunk_count = 0
+        
+        try:
+            # Reuse existing stream_response method for DRY
+            async for chunk in self.stream_response(session_id, message):
+                if chunk:
+                    chunk_count += 1
+                    full_content.append(chunk)
+                    
+                    # Stream chunk to callback in real-time
+                    try:
+                        await output_callback(chunk)
+                    except Exception as e:
+                        logger.warning(f"Output callback error: {e}")
+                    
+                    # Log progress periodically
+                    if chunk_count % 50 == 0:
+                        logger.debug(f"Session {session_id}: Streamed {chunk_count} chunks")
+            
+            logger.info(f"Session {session_id}: Streaming completed ({chunk_count} chunks)")
+            
+        except OpenCodeError:
+            raise
+        except Exception as e:
+            logger.error(f"Streaming error for session {session_id}: {e}")
+            # If streaming failed, fall back to fetching final content
+        
+        # Return streamed content, or fetch final if streaming failed
+        if full_content:
+            content = ''.join(full_content)
+        else:
+            client = await self._get_client()
+            content = await self._fetch_message_content(client, session_id)
+        
+        logger.info(f"Received response for session {session_id} ({len(content)} chars)")
+        
+        return {"content": content}
     
     def _is_message_completed(self, info: Any, context: str = "") -> bool:
         """
@@ -420,10 +489,12 @@ class OpenCodeClient:
             if output_callback:
                 try:
                     final_content = await self._fetch_message_content(client, session_id)
+                    logger.info(f"Session {session_id}: Fetched final content for callback ({len(final_content) if final_content else 0} chars)")
                     if final_content:
+                        logger.info(f"Session {session_id}: Calling output_callback with final content")
                         await output_callback(final_content)
                 except Exception as e:
-                    logger.debug(f"Output callback error on completed message: {e}")
+                    logger.warning(f"Session {session_id}: Output callback error on completed message: {e}")
             return
         
         # Poll for completion
@@ -474,10 +545,11 @@ class OpenCodeClient:
                         if len(current_content) > last_content_length:
                             new_content = current_content[last_content_length:]
                             last_content_length = len(current_content)
+                            logger.debug(f"Session {session_id}: Streaming {len(new_content)} new chars via callback")
                             try:
                                 await output_callback(new_content)
                             except Exception as e:
-                                logger.debug(f"Output callback error: {e}")
+                                logger.warning(f"Session {session_id}: Output callback error: {e}")
                     
                     info = _safe_get(target_message, 'info')
                     if info:
