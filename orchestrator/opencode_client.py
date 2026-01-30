@@ -343,6 +343,9 @@ class OpenCodeClient:
         # Collect all streamed content
         full_content = []
         chunk_count = 0
+        callback_success_count = 0
+        
+        logger.info(f"Session {session_id}: Starting streaming with output_callback")
         
         try:
             # Reuse existing stream_response method for DRY
@@ -354,14 +357,11 @@ class OpenCodeClient:
                     # Stream chunk to callback in real-time
                     try:
                         await output_callback(chunk)
+                        callback_success_count += 1
                     except Exception as e:
-                        logger.warning(f"Output callback error: {e}")
-                    
-                    # Log progress periodically
-                    if chunk_count % 50 == 0:
-                        logger.debug(f"Session {session_id}: Streamed {chunk_count} chunks")
+                        logger.warning(f"Session {session_id}: output_callback failed for chunk {chunk_count}: {e}")
             
-            logger.info(f"Session {session_id}: Streaming completed ({chunk_count} chunks)")
+            logger.info(f"Session {session_id}: Streaming completed ({chunk_count} chunks, {callback_success_count} callbacks succeeded)")
             
         except OpenCodeError:
             raise
@@ -373,8 +373,18 @@ class OpenCodeClient:
         if full_content:
             content = ''.join(full_content)
         else:
+            # Streaming failed - fetch final content as fallback
+            logger.info(f"Session {session_id}: Streaming produced no content, fetching final content as fallback")
             client = await self._get_client()
             content = await self._fetch_message_content(client, session_id)
+            
+            # Call output_callback with fallback content so user sees something
+            if content:
+                logger.info(f"Session {session_id}: Sending fallback content via output_callback ({len(content)} chars)")
+                try:
+                    await output_callback(content)
+                except Exception as e:
+                    logger.warning(f"Session {session_id}: Fallback output_callback failed: {e}")
         
         logger.info(f"Received response for session {session_id} ({len(content)} chars)")
         
@@ -1032,6 +1042,7 @@ class OpenCodeClient:
             
             chunk_count = 0
             text_chunk_count = 0
+            raw_yield_count = 0
             
             # Use streaming response with mode parameter
             # max_tokens is configured in opencode.json model options
@@ -1052,18 +1063,32 @@ class OpenCodeClient:
                     if not raw_line:
                         continue
                     
-                    # Parse SSE line and extract text content
+                    # Log every line at DEBUG level (use INFO only for summaries)
+                    line_preview = raw_line[:150] if len(raw_line) > 150 else raw_line
+                    logger.debug(f"Session {session_id}: Stream line {chunk_count}: {line_preview}")
+                    
+                    # Try to parse as SSE and extract text content
                     text = self._parse_sse_line(raw_line)
                     
                     if text:
                         text_chunk_count += 1
-                        logger.debug(f"Session {session_id}: SSE line {chunk_count} -> text ({len(text)} chars)")
+                        logger.debug(f"Session {session_id}: Parsed text ({len(text)} chars)")
                         yield text
                     else:
-                        # Log raw line for debugging if no text extracted
-                        logger.debug(f"Session {session_id}: SSE line {chunk_count} had no text: {raw_line[:200] if len(raw_line) > 200 else raw_line}")
+                        # SSE parsing failed - try to yield raw line as fallback
+                        # This ensures we always transmit something even if format is unexpected
+                        stripped_line = raw_line.strip()
+                        
+                        # Skip known non-content lines
+                        if stripped_line and not stripped_line.startswith(('event:', 'id:', 'retry:', ':')):
+                            # Check if it looks like it might be content (not just SSE metadata)
+                            # Skip 'data:' prefix lines that couldn't be parsed (they had no JSON)
+                            if not stripped_line.startswith('data:') or len(stripped_line) > 6:
+                                raw_yield_count += 1
+                                logger.debug(f"Session {session_id}: Yielding raw line as fallback")
+                                yield stripped_line
             
-            logger.info(f"Session {session_id}: SSE stream completed ({chunk_count} chunks, {text_chunk_count} with text)")
+            logger.info(f"Session {session_id}: SSE stream completed ({chunk_count} lines, {text_chunk_count} parsed, {raw_yield_count} raw)")
                         
         except OpenCodeError:
             raise
