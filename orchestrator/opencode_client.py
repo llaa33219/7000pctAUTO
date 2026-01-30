@@ -25,6 +25,8 @@ _OPENCODE_CONFIG: Optional[Dict[str, Any]] = None
 # Pre-compiled regex patterns for performance
 _FRONTMATTER_PATTERN = re.compile(r'^---\s*\n.*?\n---\s*\n', re.DOTALL)
 _VALID_AGENT_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+_SSE_DATA_PREFIX = 'data:'
+_SSE_DONE_MARKER = '[DONE]'
 
 
 def _load_opencode_config() -> Dict[str, Any]:
@@ -883,24 +885,142 @@ class OpenCodeClient:
         
         return '\n'.join(texts)
     
+    def _parse_sse_line(self, sse_line: str) -> Optional[str]:
+        """
+        Parse a single SSE (Server-Sent Events) line and extract text content.
+        
+        SSE line format is 'data: {json}' or 'data: [DONE]'.
+        The JSON payload may contain text in various formats:
+        - {"content": "text"}
+        - {"text": "text"}
+        - {"delta": {"content": "text"}}
+        - {"choices": [{"delta": {"content": "text"}}]}
+        - {"parts": [{"type": "text", "text": "text"}]}
+        
+        Args:
+            sse_line: Single SSE line (from iter_lines())
+            
+        Returns:
+            Extracted text content or None if no text found
+        """
+        if not sse_line:
+            return None
+        
+        line = sse_line.strip()
+        
+        # Skip empty lines and non-data lines (e.g., event:, id:, retry:)
+        if not line or not line.startswith(_SSE_DATA_PREFIX):
+            return None
+        
+        # Extract the data after 'data:'
+        data_str = line[len(_SSE_DATA_PREFIX):].strip()
+        
+        # Skip [DONE] marker
+        if data_str == _SSE_DONE_MARKER:
+            return None
+        
+        # Skip empty data
+        if not data_str:
+            return None
+        
+        # Try to parse as JSON
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            # Not JSON, might be raw text - log and skip
+            logger.debug(f"SSE data is not JSON: {data_str[:100]}")
+            return None
+        
+        # Extract text from various JSON structures
+        return self._extract_text_from_sse_json(data)
+    
+    def _extract_text_from_sse_json(self, data: Any) -> Optional[str]:
+        """
+        Extract text content from SSE JSON payload.
+        
+        Handles various response formats from different AI providers.
+        
+        Args:
+            data: Parsed JSON data from SSE
+            
+        Returns:
+            Extracted text or None
+        """
+        if not isinstance(data, dict):
+            return None
+        
+        # Direct content field (common format)
+        if 'content' in data and isinstance(data['content'], str):
+            return data['content']
+        
+        # Direct text field
+        if 'text' in data and isinstance(data['text'], str):
+            return data['text']
+        
+        # Delta format (OpenAI streaming style)
+        delta = data.get('delta')
+        if isinstance(delta, dict):
+            if 'content' in delta and isinstance(delta['content'], str):
+                return delta['content']
+            if 'text' in delta and isinstance(delta['text'], str):
+                return delta['text']
+        
+        # Choices array format (OpenAI chat completions)
+        choices = data.get('choices')
+        if isinstance(choices, list) and choices:
+            first_choice = choices[0]
+            if isinstance(first_choice, dict):
+                choice_delta = first_choice.get('delta')
+                if isinstance(choice_delta, dict):
+                    content = choice_delta.get('content')
+                    if isinstance(content, str):
+                        return content
+        
+        # Parts array format (OpenCode style)
+        parts = data.get('parts')
+        if isinstance(parts, list):
+            texts = []
+            for part in parts:
+                if isinstance(part, dict) and part.get('type') == 'text':
+                    text = part.get('text')
+                    if isinstance(text, str):
+                        texts.append(text)
+            if texts:
+                return ''.join(texts)
+        
+        # Message content (nested format)
+        message = data.get('message')
+        if isinstance(message, dict):
+            content = message.get('content')
+            if isinstance(content, str):
+                return content
+        
+        return None
+
     async def stream_response(self, session_id: str, message: str) -> AsyncIterator[str]:
         """
         Stream response from agent.
+        
+        Handles SSE (Server-Sent Events) format from OpenCode SDK and extracts
+        actual text content from the JSON payloads.
         
         Args:
             session_id: Session ID from create_session
             message: User message to send
             
         Yields:
-            Response text chunks
+            Response text chunks (parsed from SSE JSON)
         """
         if session_id not in self._sessions:
             raise OpenCodeError(f"Session {session_id} not found")
         
         session_data = self._sessions[session_id]
+        agent_name = session_data["agent"]
         
         try:
             client = await self._get_client()
+            
+            logger.info(f"Starting SSE stream for session {session_id} (agent: {agent_name})")
             
             # Build message parts
             parts: List[Dict[str, Any]] = [
@@ -909,6 +1029,9 @@ class OpenCodeClient:
             
             # Enable all MCP tools
             tools: Dict[str, bool] = {"*": True}
+            
+            chunk_count = 0
+            text_chunk_count = 0
             
             # Use streaming response with mode parameter
             # max_tokens is configured in opencode.json model options
@@ -921,9 +1044,26 @@ class OpenCodeClient:
                 system=session_data["system_prompt"],  # Fallback system prompt
                 tools=tools,
             ) as response:
-                async for chunk in response.iter_text():
-                    if chunk:
-                        yield chunk
+                # Use iter_lines() for reliable SSE parsing (SSE is line-based protocol)
+                # iter_text() can split lines mid-way causing JSON parse failures
+                async for raw_line in response.iter_lines():
+                    chunk_count += 1
+                    
+                    if not raw_line:
+                        continue
+                    
+                    # Parse SSE line and extract text content
+                    text = self._parse_sse_line(raw_line)
+                    
+                    if text:
+                        text_chunk_count += 1
+                        logger.debug(f"Session {session_id}: SSE line {chunk_count} -> text ({len(text)} chars)")
+                        yield text
+                    else:
+                        # Log raw line for debugging if no text extracted
+                        logger.debug(f"Session {session_id}: SSE line {chunk_count} had no text: {raw_line[:200] if len(raw_line) > 200 else raw_line}")
+            
+            logger.info(f"Session {session_id}: SSE stream completed ({chunk_count} chunks, {text_chunk_count} with text)")
                         
         except OpenCodeError:
             raise
