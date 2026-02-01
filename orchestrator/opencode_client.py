@@ -788,12 +788,17 @@ class OpenCodeClient:
             if text and isinstance(text, str):
                 return text
             
-            # Try part object
+            # Try part object (can be dict or Pydantic model)
             part = _safe_get(properties, 'part')
-            if isinstance(part, dict):
-                text = _safe_get(part, 'text') or _safe_get(part, 'content')
-                if text and isinstance(text, str):
-                    return text
+            if part is not None:
+                # _safe_get handles both dict and object attributes
+                # Include 'reasoning' type which also contains text content
+                part_type = _safe_get(part, 'type')
+                if part_type in ('text', 'reasoning', None):
+                    text = _safe_get(part, 'text') or _safe_get(part, 'content')
+                    if text and isinstance(text, str):
+                        logger.debug(f"Extracted text from part (type={part_type}): {len(text)} chars")
+                        return text
             
             return None
         
@@ -801,11 +806,13 @@ class OpenCodeClient:
         if event_type == 'message.updated':
             # Try parts array in properties
             parts = _safe_get(properties, 'parts')
-            if isinstance(parts, list):
+            if parts and hasattr(parts, '__iter__'):
                 texts = []
                 for part in parts:
-                    if isinstance(part, dict) and part.get('type') == 'text':
-                        t = part.get('text')
+                    # Handle both dict and Pydantic model parts
+                    part_type = _safe_get(part, 'type')
+                    if part_type in ('text', 'reasoning'):  # Include reasoning type
+                        t = _safe_get(part, 'text')
                         if t:
                             texts.append(t)
                 if texts:
@@ -813,14 +820,15 @@ class OpenCodeClient:
             
             # Try message object
             message = _safe_get(properties, 'message')
-            if isinstance(message, dict):
+            if message is not None:
                 # Check message parts
                 msg_parts = _safe_get(message, 'parts')
-                if isinstance(msg_parts, list):
+                if msg_parts and hasattr(msg_parts, '__iter__'):
                     texts = []
                     for part in msg_parts:
-                        if isinstance(part, dict) and part.get('type') == 'text':
-                            t = part.get('text')
+                        part_type = _safe_get(part, 'type')
+                        if part_type in ('text', 'reasoning'):
+                            t = _safe_get(part, 'text')
                             if t:
                                 texts.append(t)
                     if texts:
@@ -846,18 +854,19 @@ class OpenCodeClient:
         
         # Delta content (streaming format)
         delta = _safe_get(properties, 'delta')
-        if isinstance(delta, dict):
+        if delta is not None:
             text = _safe_get(delta, 'content') or _safe_get(delta, 'text')
             if text and isinstance(text, str):
                 return text
         
         # Parts array format
         parts = _safe_get(properties, 'parts')
-        if isinstance(parts, list):
+        if parts and hasattr(parts, '__iter__'):
             texts = []
             for part in parts:
-                if isinstance(part, dict) and part.get('type') == 'text':
-                    t = part.get('text')
+                part_type = _safe_get(part, 'type')
+                if part_type in ('text', 'reasoning'):
+                    t = _safe_get(part, 'text')
                     if t:
                         texts.append(t)
             if texts:
@@ -865,16 +874,17 @@ class OpenCodeClient:
         
         # Message object with content
         message = _safe_get(properties, 'message')
-        if isinstance(message, dict):
+        if message is not None:
             text = _safe_get(message, 'content') or _safe_get(message, 'text')
             if text and isinstance(text, str):
                 return text
             msg_parts = _safe_get(message, 'parts')
-            if isinstance(msg_parts, list):
+            if msg_parts and hasattr(msg_parts, '__iter__'):
                 texts = []
                 for part in msg_parts:
-                    if isinstance(part, dict) and part.get('type') == 'text':
-                        t = part.get('text')
+                    part_type = _safe_get(part, 'type')
+                    if part_type in ('text', 'reasoning'):
+                        t = _safe_get(part, 'text')
                         if t:
                             texts.append(t)
                 if texts:
