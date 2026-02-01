@@ -530,10 +530,12 @@ class OpenCodeClient:
                     # Handle session.diff - real-time diff/streaming updates
                     # Some OpenCode servers send session.diff instead of message.part.updated
                     if event_type == 'session.diff':
-                        # Log properties keys for debugging (avoid verbose full properties in production)
-                        logger.debug(f"Session {session_id}: session.diff event received, properties keys: {list(properties.keys()) if isinstance(properties, dict) else 'N/A'}")
+                        # Detailed logging of entire event object for debugging
+                        event_info = self._get_event_debug_info(event)
+                        logger.info(f"Session {session_id}: session.diff event received: {event_info}")
                         
-                        text = self._extract_text_from_session_diff(properties)
+                        # Try to extract text from event (not just properties)
+                        text = self._extract_text_from_session_diff_event(event, properties)
                         if text:
                             chunk_count += 1
                             accumulated_content.append(text)
@@ -543,7 +545,7 @@ class OpenCodeClient:
                             except Exception as e:
                                 logger.warning(f"Session {session_id}: Output callback error: {e}")
                         else:
-                            logger.debug(f"Session {session_id}: session.diff - no text extracted")
+                            logger.info(f"Session {session_id}: session.diff - no text extracted")
                         continue
                     
                     # Note: message.updated is intentionally NOT handled here
@@ -780,6 +782,191 @@ class OpenCodeClient:
         
         return None
     
+    def _get_event_debug_info(self, event: Any) -> str:
+        """
+        Get detailed debug information about an event object.
+        
+        Args:
+            event: Event object from SSE stream
+            
+        Returns:
+            Debug string describing the event structure
+        """
+        info_parts = []
+        
+        try:
+            # Get type
+            event_type = type(event).__name__
+            info_parts.append(f"type={event_type}")
+            
+            # Try model_dump() for Pydantic models
+            if hasattr(event, 'model_dump'):
+                try:
+                    dump = event.model_dump()
+                    # Truncate if too long
+                    dump_str = str(dump)
+                    if len(dump_str) > 500:
+                        dump_str = dump_str[:500] + '...'
+                    info_parts.append(f"model_dump={dump_str}")
+                except Exception as e:
+                    info_parts.append(f"model_dump_error={e}")
+            
+            # Get all attributes
+            if hasattr(event, '__dict__'):
+                attrs = list(event.__dict__.keys())
+                info_parts.append(f"attrs={attrs}")
+            
+            # Try common attribute names
+            for attr in ['type', 'properties', 'data', 'diff', 'content', 'value', 'message', 'parts', 'delta', 'id', 'session_id']:
+                val = _safe_get(event, attr)
+                if val is not None:
+                    val_str = str(val)
+                    if len(val_str) > 100:
+                        val_str = val_str[:100] + '...'
+                    info_parts.append(f"{attr}={val_str}")
+            
+            # If it's a dict, show keys
+            if isinstance(event, dict):
+                info_parts.append(f"dict_keys={list(event.keys())}")
+                
+        except Exception as e:
+            info_parts.append(f"debug_error={e}")
+        
+        return "; ".join(info_parts)
+    
+    def _extract_text_from_session_diff_event(self, event: Any, properties: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract text content from a session.diff event.
+        
+        Tries multiple sources:
+        1. Properties dict (already extracted)
+        2. Direct event attributes (data, diff, content, etc.)
+        3. model_dump() if available
+        4. __dict__ if available
+        
+        Args:
+            event: The full event object
+            properties: Properties dict from the event (may be empty)
+            
+        Returns:
+            Extracted text or None
+        """
+        # First, try the properties dict
+        text = self._extract_text_from_session_diff(properties)
+        if text:
+            return text
+        
+        # Try to get data from event object directly
+        # Common field names where diff data might be
+        for field in ['diff', 'data', 'content', 'value', 'delta', 'message', 'text', 'parts']:
+            val = _safe_get(event, field)
+            if val is not None:
+                extracted = self._try_extract_text_from_value(val)
+                if extracted:
+                    logger.debug(f"Extracted text from event.{field}")
+                    return extracted
+        
+        # Try model_dump() for Pydantic models
+        if hasattr(event, 'model_dump'):
+            try:
+                dump = event.model_dump()
+                if isinstance(dump, dict):
+                    # Look for text in dump (excluding properties which we already checked)
+                    for field in ['diff', 'data', 'content', 'value', 'delta', 'message', 'text', 'parts']:
+                        if field in dump and dump[field] is not None:
+                            extracted = self._try_extract_text_from_value(dump[field])
+                            if extracted:
+                                logger.debug(f"Extracted text from model_dump.{field}")
+                                return extracted
+            except Exception as e:
+                logger.debug(f"model_dump extraction failed: {e}")
+        
+        # Try __dict__ for regular objects
+        if hasattr(event, '__dict__'):
+            event_dict = event.__dict__
+            for field in ['diff', 'data', 'content', 'value', 'delta', 'message', 'text', 'parts']:
+                if field in event_dict and event_dict[field] is not None:
+                    extracted = self._try_extract_text_from_value(event_dict[field])
+                    if extracted:
+                        logger.debug(f"Extracted text from __dict__.{field}")
+                        return extracted
+        
+        return None
+    
+    def _try_extract_text_from_value(self, value: Any) -> Optional[str]:
+        """
+        Try to extract text from a value of unknown structure.
+        
+        Args:
+            value: Value to extract text from (could be str, dict, list, etc.)
+            
+        Returns:
+            Extracted text or None
+        """
+        if value is None:
+            return None
+        
+        # Direct string
+        if isinstance(value, str):
+            return value if value.strip() else None
+        
+        # Dict - look for text fields
+        if isinstance(value, dict):
+            # Direct text fields
+            for field in ['text', 'content', 'value', 'delta', 'message']:
+                if field in value and isinstance(value[field], str):
+                    return value[field]
+            
+            # Nested delta
+            delta = value.get('delta')
+            if isinstance(delta, dict):
+                text = delta.get('text') or delta.get('content')
+                if isinstance(text, str):
+                    return text
+            
+            # Parts array
+            parts = value.get('parts')
+            if isinstance(parts, list):
+                texts = []
+                for part in parts:
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        t = part.get('text')
+                        if t:
+                            texts.append(t)
+                if texts:
+                    return ''.join(texts)
+            
+            # JSON Patch style operations
+            for ops_field in ['diff', 'operations', 'patches', 'changes']:
+                ops = value.get(ops_field)
+                if isinstance(ops, list):
+                    texts = []
+                    for op in ops:
+                        if isinstance(op, dict):
+                            v = op.get('value') or op.get('text') or op.get('content')
+                            if isinstance(v, str):
+                                texts.append(v)
+                        elif isinstance(op, str):
+                            texts.append(op)
+                    if texts:
+                        return ''.join(texts)
+        
+        # List - try to extract from each item
+        if isinstance(value, list):
+            texts = []
+            for item in value:
+                if isinstance(item, str):
+                    texts.append(item)
+                elif isinstance(item, dict):
+                    # JSON Patch style
+                    v = item.get('value') or item.get('text') or item.get('content')
+                    if isinstance(v, str):
+                        texts.append(v)
+            if texts:
+                return ''.join(texts)
+        
+        return None
+    
     def _extract_text_from_session_diff(self, properties: Dict[str, Any]) -> Optional[str]:
         """
         Extract text content from a session.diff event's properties.
@@ -800,6 +987,11 @@ class OpenCodeClient:
         if not isinstance(properties, dict):
             if hasattr(properties, '__dict__'):
                 properties = properties.__dict__
+            elif hasattr(properties, 'model_dump'):
+                try:
+                    properties = properties.model_dump()
+                except Exception:
+                    return None
             else:
                 return None
         
