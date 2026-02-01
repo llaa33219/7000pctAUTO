@@ -113,6 +113,17 @@ class OpenCodeError(Exception):
     pass
 
 
+class _MessageAlreadySentError(Exception):
+    """Internal exception indicating message was sent but streaming failed.
+    
+    This is used to signal to the caller that fallback should NOT send
+    another message, but instead poll for the existing message's completion.
+    """
+    def __init__(self, message: str, accumulated_content: List[str] = None):
+        super().__init__(message)
+        self.accumulated_content = accumulated_content or []
+
+
 def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
     """Get a value from either a dict or an object attribute."""
     if obj is None:
@@ -325,11 +336,15 @@ class OpenCodeClient:
         output_callback: Callable[[str], Awaitable[None]]
     ) -> Dict[str, Any]:
         """
-        Send a message with polling-based streaming output.
+        Send a message with real-time streaming output.
         
-        OpenCode SDK's session.chat() doesn't support real-time streaming.
-        Instead, we use polling via _wait_for_completion which calls the
-        output_callback whenever new content is detected.
+        Uses a hybrid approach:
+        1. Start event.subscribe() SSE stream in background to receive real-time events
+        2. Call session.chat() to send the message
+        3. Filter events for this session and forward to output_callback
+        4. Detect completion and return final content
+        
+        Falls back to polling if event streaming fails.
         
         Args:
             session_id: Session ID from create_session
@@ -343,6 +358,543 @@ class OpenCodeClient:
         agent_name = session_data["agent"]
         
         logger.info(f"Session {session_id} ({agent_name}): Starting streaming message")
+        
+        client = await self._get_client()
+        
+        # Try event.subscribe() based streaming first
+        # This method handles its own fallback to polling if message was already sent
+        try:
+            return await self._send_message_with_event_stream(
+                client, session_id, message, output_callback
+            )
+        except OpenCodeError:
+            raise
+        except _MessageAlreadySentError as e:
+            # Message was sent but event streaming failed - poll for completion
+            # Do NOT fall back to methods that would send another message
+            logger.warning(f"Session {session_id}: Event stream failed after message sent, polling for completion")
+            return await self._poll_for_existing_message(
+                client, session_id, output_callback, list(e.accumulated_content)
+            )
+        except Exception as e:
+            logger.warning(f"Session {session_id}: Event stream approach failed before message sent ({e}), trying with_streaming_response")
+        
+        # Fallback to with_streaming_response approach (only if message NOT yet sent)
+        try:
+            return await self._send_message_with_streaming_response(
+                client, session_id, message, output_callback
+            )
+        except OpenCodeError:
+            raise
+        except _MessageAlreadySentError as e:
+            # Message was sent but streaming failed - poll for completion
+            logger.warning(f"Session {session_id}: with_streaming_response failed after message sent, polling for completion")
+            return await self._poll_for_existing_message(
+                client, session_id, output_callback, list(e.accumulated_content)
+            )
+        except Exception as e:
+            logger.warning(f"Session {session_id}: with_streaming_response failed before message sent ({e}), falling back to polling")
+        
+        # Final fallback: polling-based streaming (sends new message)
+        return await self._send_message_polling(
+            session_id, message, output_callback
+        )
+    
+    async def _send_message_with_event_stream(
+        self,
+        client: Any,
+        session_id: str,
+        message: str,
+        output_callback: Callable[[str], Awaitable[None]]
+    ) -> Dict[str, Any]:
+        """
+        Send a message using event.subscribe() for real-time streaming.
+        
+        This approach:
+        1. Starts event subscription BEFORE sending message (to not miss events)
+        2. Sends message via session.chat()
+        3. Processes events filtered by session_id
+        4. Returns when message is complete
+        
+        If message is sent but event streaming fails, raises _MessageAlreadySentError
+        to signal the caller should poll instead of sending another message.
+        
+        Args:
+            client: OpenCode client instance
+            session_id: Session ID
+            message: User message to send
+            output_callback: Callback for streaming output
+            
+        Returns:
+            Dict with "content" (full response)
+            
+        Raises:
+            OpenCodeError: For API/auth errors
+            _MessageAlreadySentError: If message sent but streaming failed
+        """
+        session_data = self._sessions[session_id]
+        agent_name = session_data["agent"]
+        
+        logger.info(f"Session {session_id}: Starting event.subscribe() based streaming")
+        
+        # Build message parts
+        parts: List[Dict[str, Any]] = [
+            {"type": "text", "text": message}
+        ]
+        tools: Dict[str, bool] = {"*": True}
+        
+        accumulated_content: List[str] = []
+        message_completed = asyncio.Event()
+        message_sent = False  # Track if message was successfully sent
+        event_error: List[Exception] = []  # To pass errors from event task
+        events_stream: Any = None  # Track for cleanup
+        
+        async def process_events():
+            """Background task to process SSE events."""
+            nonlocal events_stream
+            try:
+                # Subscribe to SSE event stream
+                events_stream = await client.event.subscribe()
+                chunk_count = 0
+                
+                async for event in events_stream.stream:
+                    # Check if we should stop
+                    if message_completed.is_set():
+                        break
+                    
+                    # Extract event info
+                    event_type = _safe_get(event, 'type', '')
+                    properties = _safe_get(event, 'properties', {})
+                    
+                    # Filter by session ID
+                    event_session_id = _safe_get(properties, 'sessionId') or _safe_get(properties, 'session_id')
+                    if event_session_id and event_session_id != session_id:
+                        continue
+                    
+                    logger.info(f"Session {session_id}: Event {event_type} received")
+                    
+                    # Extract text content from event
+                    text = self._extract_text_from_event(event)
+                    if text:
+                        chunk_count += 1
+                        accumulated_content.append(text)
+                        logger.info(f"Session {session_id}: Event chunk {chunk_count} ({len(text)} chars)")
+                        try:
+                            await output_callback(text)
+                        except Exception as e:
+                            logger.warning(f"Session {session_id}: Output callback error: {e}")
+                    
+                    # Check for completion events
+                    if self._is_completion_event(event_type, properties):
+                        logger.info(f"Session {session_id}: Completion event detected")
+                        message_completed.set()
+                        break
+                        
+            except asyncio.CancelledError:
+                logger.info(f"Session {session_id}: Event processing cancelled")
+            except Exception as e:
+                logger.warning(f"Session {session_id}: Event processing error: {e}")
+                event_error.append(e)
+                message_completed.set()
+            finally:
+                # Cleanup: close event stream if it has a close method
+                if events_stream and hasattr(events_stream, 'close'):
+                    try:
+                        await events_stream.close()
+                    except Exception as e:
+                        logger.debug(f"Session {session_id}: Error closing event stream: {e}")
+        
+        # Start event processing in background
+        event_task = asyncio.create_task(process_events())
+        
+        try:
+            # Small delay to ensure event subscription is ready
+            await asyncio.sleep(0.1)
+            
+            # Send the message
+            logger.info(f"Session {session_id}: Sending message via session.chat()")
+            response = await client.session.chat(
+                session_id,
+                model_id=self.model_id,
+                provider_id=self.provider_id,
+                parts=parts,
+                mode=agent_name,
+                system=session_data["system_prompt"],
+                tools=tools,
+            )
+            
+            # Message was successfully sent
+            message_sent = True
+            
+            # Check for errors in initial response
+            if hasattr(response, 'error') and response.error:
+                error_msg = str(response.error)
+                logger.error(f"Session {session_id}: Chat error: {error_msg}")
+                raise OpenCodeError(f"Agent error: {error_msg}")
+            
+            # Wait for completion with timeout
+            try:
+                await asyncio.wait_for(message_completed.wait(), timeout=120)
+            except asyncio.TimeoutError:
+                logger.warning(f"Session {session_id}: Event stream timeout, fetching final content")
+            
+            # If event processing had an error and no content, signal caller to poll
+            if event_error and not accumulated_content:
+                raise _MessageAlreadySentError(
+                    f"Event processing failed: {event_error[0]}",
+                    accumulated_content
+                )
+            
+            # Get final content
+            content = ''.join(accumulated_content)
+            
+            # If no content from events, fetch via messages API
+            if not content:
+                logger.info(f"Session {session_id}: No content from events, fetching via messages API")
+                content = await self._fetch_message_content(client, session_id)
+                if content and output_callback:
+                    try:
+                        await output_callback(content)
+                    except Exception as e:
+                        logger.warning(f"Session {session_id}: Final callback error: {e}")
+            
+            logger.info(f"Session {session_id}: Event streaming complete ({len(accumulated_content)} chunks, {len(content)} chars)")
+            return {"content": content}
+            
+        except OpenCodeError:
+            raise
+        except _MessageAlreadySentError:
+            raise
+        except Exception as e:
+            # If message was sent but we failed, signal to poll instead of retrying
+            if message_sent:
+                raise _MessageAlreadySentError(
+                    f"Event streaming failed after message sent: {e}",
+                    accumulated_content
+                )
+            # Message not sent - let caller try another approach
+            raise
+        finally:
+            # Cleanup: cancel event task if still running
+            message_completed.set()
+            event_task.cancel()
+            try:
+                await event_task
+            except asyncio.CancelledError:
+                pass
+    
+    def _extract_text_from_event(self, event: Any) -> Optional[str]:
+        """
+        Extract text content from an SSE event.
+        
+        Args:
+            event: Event object from event.subscribe()
+            
+        Returns:
+            Extracted text or None
+        """
+        if event is None:
+            return None
+        
+        properties = _safe_get(event, 'properties', {})
+        
+        # Try various property locations for text content
+        # Direct text/content in properties
+        text = _safe_get(properties, 'text') or _safe_get(properties, 'content')
+        if text and isinstance(text, str):
+            return text
+        
+        # Delta content (streaming format)
+        delta = _safe_get(properties, 'delta')
+        if isinstance(delta, dict):
+            text = _safe_get(delta, 'content') or _safe_get(delta, 'text')
+            if text and isinstance(text, str):
+                return text
+        
+        # Parts array format
+        parts = _safe_get(properties, 'parts')
+        if isinstance(parts, list):
+            texts = []
+            for part in parts:
+                if isinstance(part, dict) and part.get('type') == 'text':
+                    t = part.get('text')
+                    if t:
+                        texts.append(t)
+            if texts:
+                return ''.join(texts)
+        
+        # Message object with content
+        message = _safe_get(properties, 'message')
+        if isinstance(message, dict):
+            text = _safe_get(message, 'content') or _safe_get(message, 'text')
+            if text and isinstance(text, str):
+                return text
+            # Check message parts
+            msg_parts = _safe_get(message, 'parts')
+            if isinstance(msg_parts, list):
+                texts = []
+                for part in msg_parts:
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        t = part.get('text')
+                        if t:
+                            texts.append(t)
+                if texts:
+                    return ''.join(texts)
+        
+        return None
+    
+    def _is_completion_event(self, event_type: str, properties: Dict[str, Any]) -> bool:
+        """
+        Check if an event indicates message completion.
+        
+        Args:
+            event_type: Event type string
+            properties: Event properties dict
+            
+        Returns:
+            True if this is a completion event
+        """
+        # Check event type patterns
+        completion_types = [
+            'message.complete',
+            'message.completed',
+            'message.done',
+            'message.finish',
+            'session.complete',
+            'session.completed',
+            'response.complete',
+            'response.done',
+            'done',
+            'complete',
+            'finished',
+        ]
+        
+        event_type_lower = event_type.lower() if event_type else ''
+        for ct in completion_types:
+            if ct in event_type_lower:
+                return True
+        
+        # Check properties for completion indicators
+        status = _safe_get(properties, 'status')
+        if status in ('completed', 'complete', 'done', 'finished'):
+            return True
+        
+        finish = _safe_get(properties, 'finish') or _safe_get(properties, 'finish_reason')
+        if finish in ('stop', 'end_turn', 'completed'):
+            return True
+        
+        # Check for time.completed in message info
+        time_info = _safe_get(properties, 'time')
+        if time_info and _safe_get(time_info, 'completed'):
+            return True
+        
+        return False
+    
+    async def _send_message_with_streaming_response(
+        self,
+        client: Any,
+        session_id: str,
+        message: str,
+        output_callback: Callable[[str], Awaitable[None]]
+    ) -> Dict[str, Any]:
+        """
+        Send a message using with_streaming_response for SSE streaming.
+        
+        This is the fallback approach when event.subscribe() is not available.
+        
+        If message is sent but streaming fails, raises _MessageAlreadySentError
+        to signal the caller should poll instead of sending another message.
+        
+        Args:
+            client: OpenCode client instance
+            session_id: Session ID
+            message: User message to send
+            output_callback: Callback for streaming output
+            
+        Returns:
+            Dict with "content" (full response)
+            
+        Raises:
+            OpenCodeError: For API/auth errors
+            _MessageAlreadySentError: If message sent but streaming failed
+        """
+        session_data = self._sessions[session_id]
+        agent_name = session_data["agent"]
+        
+        logger.info(f"Session {session_id}: Using with_streaming_response fallback")
+        
+        # Build message parts
+        parts: List[Dict[str, Any]] = [
+            {"type": "text", "text": message}
+        ]
+        tools: Dict[str, bool] = {"*": True}
+        
+        accumulated_content: List[str] = []
+        message_sent = False  # Track if message was sent (entering context = sent)
+        
+        try:
+            async with client.session.with_streaming_response.chat(
+                session_id,
+                model_id=self.model_id,
+                provider_id=self.provider_id,
+                parts=parts,
+                mode=agent_name,
+                system=session_data["system_prompt"],
+                tools=tools,
+            ) as response:
+                # Once we enter context, message has been sent
+                message_sent = True
+                chunk_count = 0
+                
+                async for raw_line in response.iter_lines():
+                    if not raw_line:
+                        continue
+                    
+                    chunk_count += 1
+                    
+                    # Try to parse as SSE
+                    text = self._parse_sse_line(raw_line)
+                    
+                    if text:
+                        accumulated_content.append(text)
+                        logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(text)} chars)")
+                        try:
+                            await output_callback(text)
+                        except Exception as e:
+                            logger.warning(f"Session {session_id}: Output callback error: {e}")
+                
+                content = ''.join(accumulated_content)
+                logger.info(f"Session {session_id}: with_streaming_response complete ({chunk_count} chunks, {len(content)} chars)")
+                
+                # If we got no content from streaming, fetch it via messages API
+                if not content:
+                    logger.info(f"Session {session_id}: No content from streaming, fetching final content")
+                    content = await self._fetch_message_content(client, session_id)
+                    if content and output_callback:
+                        try:
+                            await output_callback(content)
+                        except Exception as e:
+                            logger.warning(f"Session {session_id}: Output callback error on final content: {e}")
+                
+                return {"content": content}
+                
+        except OpenCodeError:
+            raise
+        except Exception as e:
+            # If message was sent but streaming failed, signal to poll instead
+            if message_sent:
+                raise _MessageAlreadySentError(
+                    f"with_streaming_response failed after message sent: {e}",
+                    accumulated_content
+                )
+            # Message not sent - let caller try another approach
+            raise
+    
+    async def _poll_for_existing_message(
+        self,
+        client: Any,
+        session_id: str,
+        output_callback: Optional[Callable[[str], Awaitable[None]]],
+        already_received: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Poll for an existing message's completion without sending a new message.
+        
+        Used when streaming fails after the message was already sent - we need to
+        get the rest of the response without duplicating the message.
+        
+        Args:
+            client: OpenCode client instance
+            session_id: Session ID
+            output_callback: Optional callback for new content chunks
+            already_received: Content chunks already received via streaming
+            
+        Returns:
+            Dict with "content" (full response)
+        """
+        logger.info(f"Session {session_id}: Polling for existing message completion")
+        
+        # Track what we've already sent to the callback
+        already_sent_length = sum(len(chunk) for chunk in already_received)
+        
+        # Poll for completion with faster interval
+        poll_interval = 0.3
+        max_polls = int(120 / poll_interval)  # 120 second timeout
+        
+        for poll_count in range(max_polls):
+            try:
+                # Fetch current message content
+                current_content = await self._fetch_message_content(client, session_id)
+                
+                # Send new content to callback
+                if output_callback and current_content and len(current_content) > already_sent_length:
+                    new_content = current_content[already_sent_length:]
+                    already_sent_length = len(current_content)
+                    logger.info(f"Session {session_id}: Polling - {len(new_content)} new chars via callback")
+                    try:
+                        await output_callback(new_content)
+                    except Exception as e:
+                        logger.warning(f"Session {session_id}: Output callback error: {e}")
+                
+                # Check if message is complete by looking at latest message status
+                messages_response = await client.session.messages(session_id)
+                if messages_response:
+                    for msg in reversed(messages_response):
+                        info = _safe_get(msg, 'info')
+                        if info and _safe_get(info, 'role') == 'assistant':
+                            if self._is_message_completed(info, f"Session {session_id} poll {poll_count + 1}"):
+                                logger.info(f"Session {session_id}: Message completed after {poll_count + 1} polls")
+                                final_content = await self._fetch_message_content(client, session_id)
+                                # Send any remaining content to callback
+                                if output_callback and final_content and len(final_content) > already_sent_length:
+                                    try:
+                                        await output_callback(final_content[already_sent_length:])
+                                    except Exception as e:
+                                        logger.warning(f"Session {session_id}: Final output callback error: {e}")
+                                return {"content": final_content or ''.join(already_received)}
+                            break
+                
+                if (poll_count + 1) % 30 == 0:
+                    logger.info(f"Session {session_id}: Still polling... ({poll_count + 1} polls)")
+                    
+            except Exception as e:
+                logger.warning(f"Session {session_id}: Poll error: {e}")
+            
+            # Sleep at the end of the loop for better responsiveness on first poll
+            await asyncio.sleep(poll_interval)
+        
+        # Timeout - return whatever we have
+        logger.warning(f"Session {session_id}: Polling timeout, returning accumulated content")
+        final_content = await self._fetch_message_content(client, session_id)
+        return {"content": final_content or ''.join(already_received)}
+    
+    async def _send_message_polling(
+        self,
+        session_id: str,
+        message: str,
+        output_callback: Callable[[str], Awaitable[None]]
+    ) -> Dict[str, Any]:
+        """
+        Send a message with polling-based streaming output (fallback).
+        
+        Uses polling via _wait_for_completion which checks for new content
+        at regular intervals.
+        
+        Args:
+            session_id: Session ID from create_session
+            message: User message to send
+            output_callback: Async callback to receive streaming output chunks
+            
+        Returns:
+            Dict with "content" (full response)
+        """
+        if session_id not in self._sessions:
+            raise OpenCodeError(f"Session {session_id} not found")
+        
+        session_data = self._sessions[session_id]
+        agent_name = session_data["agent"]
+        
+        logger.info(f"Session {session_id} ({agent_name}): Starting polling-based streaming")
         
         client = await self._get_client()
         
@@ -372,7 +924,6 @@ class OpenCodeClient:
             raise OpenCodeError(f"Agent error: {error_msg}")
         
         # Poll for completion, streaming content via callback
-        # _wait_for_completion will call output_callback whenever new content is detected
         await self._wait_for_completion(
             client, session_id, response, timeout_seconds=120, output_callback=output_callback
         )
@@ -380,7 +931,7 @@ class OpenCodeClient:
         # Fetch the final complete content
         content = await self._fetch_message_content(client, session_id)
         
-        logger.info(f"Session {session_id}: Streaming complete ({len(content) if content else 0} chars)")
+        logger.info(f"Session {session_id}: Polling streaming complete ({len(content) if content else 0} chars)")
         
         return {"content": content}
     
@@ -503,8 +1054,8 @@ class OpenCodeClient:
                     logger.warning(f"Session {session_id}: Output callback error on completed message: {e}")
             return
         
-        # Poll for completion
-        poll_interval = 1.0  # seconds
+        # Poll for completion with faster interval for better responsiveness
+        poll_interval = 0.3  # seconds (reduced from 1.0 for faster streaming updates)
         max_polls = int(timeout_seconds / poll_interval)
         
         # Track last seen content for streaming
@@ -551,7 +1102,7 @@ class OpenCodeClient:
                         if len(current_content) > last_content_length:
                             new_content = current_content[last_content_length:]
                             last_content_length = len(current_content)
-                            logger.debug(f"Session {session_id}: Streaming {len(new_content)} new chars via callback")
+                            logger.info(f"Session {session_id}: Polling stream - {len(new_content)} new chars via callback")
                             try:
                                 await output_callback(new_content)
                             except Exception as e:
