@@ -527,6 +527,25 @@ class OpenCodeClient:
                                 logger.warning(f"Session {session_id}: Output callback error: {e}")
                         continue
                     
+                    # Handle session.diff - real-time diff/streaming updates
+                    # Some OpenCode servers send session.diff instead of message.part.updated
+                    if event_type == 'session.diff':
+                        # Log properties keys for debugging (avoid verbose full properties in production)
+                        logger.debug(f"Session {session_id}: session.diff event received, properties keys: {list(properties.keys()) if isinstance(properties, dict) else 'N/A'}")
+                        
+                        text = self._extract_text_from_session_diff(properties)
+                        if text:
+                            chunk_count += 1
+                            accumulated_content.append(text)
+                            logger.info(f"Session {session_id}: session.diff chunk {chunk_count} ({len(text)} chars)")
+                            try:
+                                await output_callback(text)
+                            except Exception as e:
+                                logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        else:
+                            logger.debug(f"Session {session_id}: session.diff - no text extracted")
+                        continue
+                    
                     # Note: message.updated is intentionally NOT handled here
                     # to avoid content duplication with message.part.updated events
                     
@@ -758,6 +777,120 @@ class OpenCodeClient:
                             texts.append(t)
                 if texts:
                     return ''.join(texts)
+        
+        return None
+    
+    def _extract_text_from_session_diff(self, properties: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract text content from a session.diff event's properties.
+        
+        session.diff events contain incremental changes to the session state.
+        The text content may be in various formats depending on the server.
+        
+        Args:
+            properties: Properties dict from the session.diff event
+            
+        Returns:
+            Extracted text or None
+        """
+        if not properties:
+            return None
+        
+        # Convert to dict if it's an object
+        if not isinstance(properties, dict):
+            if hasattr(properties, '__dict__'):
+                properties = properties.__dict__
+            else:
+                return None
+        
+        # Try 'diff' field - may contain text changes
+        diff = _safe_get(properties, 'diff')
+        if diff:
+            # diff could be a list of operations
+            if isinstance(diff, list):
+                texts = []
+                for op in diff:
+                    if isinstance(op, dict):
+                        # JSON Patch style: {"op": "add", "path": "...", "value": "text"}
+                        value = op.get('value')
+                        if isinstance(value, str):
+                            texts.append(value)
+                        # Or direct text in op
+                        text = op.get('text') or op.get('content')
+                        if isinstance(text, str):
+                            texts.append(text)
+                if texts:
+                    return ''.join(texts)
+            # diff could be a string directly
+            elif isinstance(diff, str):
+                return diff
+            # diff could be a dict with content
+            elif isinstance(diff, dict):
+                text = _safe_get(diff, 'text') or _safe_get(diff, 'content') or _safe_get(diff, 'value')
+                if isinstance(text, str):
+                    return text
+        
+        # Try 'operations' field (common diff format)
+        operations = _safe_get(properties, 'operations')
+        if isinstance(operations, list):
+            texts = []
+            for op in operations:
+                if isinstance(op, dict):
+                    value = op.get('value') or op.get('text') or op.get('content')
+                    if isinstance(value, str):
+                        texts.append(value)
+            if texts:
+                return ''.join(texts)
+        
+        # Try 'patches' field (JSON Patch style)
+        patches = _safe_get(properties, 'patches')
+        if isinstance(patches, list):
+            texts = []
+            for patch in patches:
+                if isinstance(patch, dict):
+                    value = patch.get('value')
+                    if isinstance(value, str):
+                        texts.append(value)
+            if texts:
+                return ''.join(texts)
+        
+        # Try 'changes' field
+        changes = _safe_get(properties, 'changes')
+        if isinstance(changes, list):
+            texts = []
+            for change in changes:
+                if isinstance(change, dict):
+                    text = change.get('text') or change.get('content') or change.get('value')
+                    if isinstance(text, str):
+                        texts.append(text)
+                elif isinstance(change, str):
+                    texts.append(change)
+            if texts:
+                return ''.join(texts)
+        elif isinstance(changes, str):
+            return changes
+        
+        # Try direct content fields
+        for field in ['text', 'content', 'delta', 'value', 'message']:
+            value = _safe_get(properties, field)
+            if isinstance(value, str):
+                return value
+            elif isinstance(value, dict):
+                text = _safe_get(value, 'text') or _safe_get(value, 'content')
+                if isinstance(text, str):
+                    return text
+        
+        # Try 'parts' array (OpenCode message format)
+        parts = _safe_get(properties, 'parts')
+        if isinstance(parts, list):
+            texts = []
+            for part in parts:
+                if isinstance(part, dict) and part.get('type') == 'text':
+                    text = part.get('text')
+                    if text:
+                        texts.append(text)
+            if texts:
+                return ''.join(texts)
         
         return None
     
