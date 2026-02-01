@@ -339,7 +339,7 @@ class OpenCodeClient:
         Send a message with real-time streaming output.
         
         Uses OpenCode SDK event-based streaming:
-        1. Start event.subscribe() SSE stream to receive real-time events
+        1. Start event.list() SSE stream to receive real-time events
         2. Call session.chat() to send the message
         3. Handle events filtered by session_id:
            - message.part.updated: Real-time delta text chunks
@@ -414,7 +414,7 @@ class OpenCodeClient:
         output_callback: Callable[[str], Awaitable[None]]
     ) -> Dict[str, Any]:
         """
-        Send a message using event.subscribe() for real-time streaming.
+        Send a message using event.list() for real-time streaming.
         
         Uses OpenCode SDK event types:
         - message.part.updated: Real-time delta/streaming text chunks
@@ -425,7 +425,7 @@ class OpenCodeClient:
         content duplication with message.part.updated events.
         
         This approach:
-        1. Starts event subscription BEFORE sending message (to not miss events)
+        1. Starts event subscription via event.list() BEFORE sending message (to not miss events)
         2. Sends message via session.chat()
         3. Processes events filtered by session_id (supports sessionID, sessionId, session_id)
         4. Returns when session.idle is received
@@ -449,7 +449,7 @@ class OpenCodeClient:
         session_data = self._sessions[session_id]
         agent_name = session_data["agent"]
         
-        logger.info(f"Session {session_id}: Starting event.subscribe() based streaming")
+        logger.info(f"Session {session_id}: Starting event.list() based streaming")
         
         # Build message parts
         parts: List[Dict[str, Any]] = [
@@ -477,11 +477,11 @@ class OpenCodeClient:
             nonlocal events_stream
             
             try:
-                # Subscribe to SSE event stream
-                events_stream = await client.event.subscribe()
+                # Subscribe to SSE event stream using event.list()
+                events_stream = await client.event.list()
                 chunk_count = 0
                 
-                async for event in events_stream.stream:
+                async for event in events_stream:
                     # Check if we should stop
                     if message_completed.is_set():
                         break
@@ -541,12 +541,18 @@ class OpenCodeClient:
                 event_error.append(e)
                 message_completed.set()
             finally:
-                # Cleanup: close event stream if it has a close method
-                if events_stream and hasattr(events_stream, 'close'):
-                    try:
-                        await events_stream.close()
-                    except Exception as e:
-                        logger.debug(f"Session {session_id}: Error closing event stream: {e}")
+                # Cleanup: close event stream if it has a close/aclose method
+                if events_stream:
+                    if hasattr(events_stream, 'aclose'):
+                        try:
+                            await events_stream.aclose()
+                        except Exception as e:
+                            logger.debug(f"Session {session_id}: Error closing event stream: {e}")
+                    elif hasattr(events_stream, 'close'):
+                        try:
+                            await events_stream.close()
+                        except Exception as e:
+                            logger.debug(f"Session {session_id}: Error closing event stream: {e}")
         
         # Start event processing in background
         event_task = asyncio.create_task(process_events())
@@ -636,7 +642,7 @@ class OpenCodeClient:
         - message.updated: Extract full message content
         
         Args:
-            event: Event object from event.subscribe()
+            event: Event object from event.list()
             event_type: The event type string for specialized handling
             
         Returns:
