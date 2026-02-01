@@ -383,7 +383,7 @@ class OpenCodeClient:
                 client, session_id, output_callback, list(e.accumulated_content)
             )
         except Exception as e:
-            logger.warning(f"Session {session_id}: Event stream approach failed before message sent ({e}), trying with_streaming_response")
+            logger.warning(f"Session {session_id}: event.list() approach failed before message sent ({e}), trying with_streaming_response")
         
         # Fallback to with_streaming_response approach (only if message NOT yet sent)
         try:
@@ -414,12 +414,13 @@ class OpenCodeClient:
         output_callback: Callable[[str], Awaitable[None]]
     ) -> Dict[str, Any]:
         """
-        Send a message using stream=True for real-time streaming.
+        Send a message using event.list() for real-time streaming.
         
-        This simplified approach:
-        1. Calls session.chat() with stream=True
-        2. Directly iterates over the async response to get streaming events
-        3. Extracts text content and calls output_callback
+        This approach:
+        1. Starts event.list() SSE stream BEFORE sending message (to not miss events)
+        2. Sends message via session.chat()
+        3. Processes events filtered by session_id
+        4. Returns when session.idle is received
         
         If message is sent but streaming fails, raises _MessageAlreadySentError
         to signal the caller should poll instead of sending another message.
@@ -440,7 +441,7 @@ class OpenCodeClient:
         session_data = self._sessions[session_id]
         agent_name = session_data["agent"]
         
-        logger.info(f"Session {session_id}: Starting direct streaming with stream=True")
+        logger.info(f"Session {session_id}: Starting event.list() based streaming")
         
         # Build message parts
         parts: List[Dict[str, Any]] = [
@@ -449,14 +450,128 @@ class OpenCodeClient:
         tools: Dict[str, bool] = {"*": True}
         
         accumulated_content: List[str] = []
-        chunk_count = 0
+        message_completed = asyncio.Event()
         message_sent = False
+        event_error: List[Exception] = []
+        events_stream: Any = None
+        last_sent_content_length: List[int] = [0]  # Track for delta-style streaming
+        
+        async def process_events():
+            """Background task to process SSE events."""
+            nonlocal events_stream
+            
+            try:
+                # Subscribe to SSE event stream using event.list()
+                events_stream = await client.event.list()
+                chunk_count = 0
+                
+                async for event in events_stream:
+                    # Check if we should stop
+                    if message_completed.is_set():
+                        break
+                    
+                    # Get event properties
+                    properties = _safe_get(event, 'properties', {})
+                    if not isinstance(properties, dict):
+                        if hasattr(properties, '__dict__'):
+                            properties = properties.__dict__
+                        elif hasattr(properties, 'model_dump'):
+                            try:
+                                properties = properties.model_dump()
+                            except Exception:
+                                properties = {}
+                    
+                    # Filter by session ID
+                    event_session_id = (
+                        _safe_get(properties, 'sessionID') or
+                        _safe_get(properties, 'sessionId') or
+                        _safe_get(properties, 'session_id')
+                    )
+                    
+                    if event_session_id and event_session_id != session_id:
+                        continue
+                    
+                    # Get event type
+                    event_type = _safe_get(event, 'type', '')
+                    
+                    # Handle message.part.updated - real-time delta text
+                    if event_type == 'message.part.updated':
+                        text = self._extract_text_from_event(event, event_type)
+                        if text:
+                            chunk_count += 1
+                            accumulated_content.append(text)
+                            logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(text)} chars)")
+                            try:
+                                await output_callback(text)
+                            except Exception as e:
+                                logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
+                    # Handle session.updated - may contain message content
+                    if event_type == 'session.updated':
+                        full_text = self._extract_text_from_session_updated(event, properties)
+                        if full_text:
+                            # Delta-style: only send new content
+                            if len(full_text) > last_sent_content_length[0]:
+                                new_text = full_text[last_sent_content_length[0]:]
+                                last_sent_content_length[0] = len(full_text)
+                                chunk_count += 1
+                                accumulated_content.append(new_text)
+                                logger.info(f"Session {session_id}: session.updated delta chunk {chunk_count} ({len(new_text)} new chars)")
+                                try:
+                                    await output_callback(new_text)
+                                except Exception as e:
+                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
+                    # Handle session.diff - diff/streaming updates
+                    if event_type == 'session.diff':
+                        text = self._extract_text_from_session_diff_event(event, properties)
+                        if text:
+                            chunk_count += 1
+                            accumulated_content.append(text)
+                            logger.info(f"Session {session_id}: session.diff chunk {chunk_count} ({len(text)} chars)")
+                            try:
+                                await output_callback(text)
+                            except Exception as e:
+                                logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
+                    # Handle session.idle - completion
+                    if event_type == 'session.idle':
+                        logger.info(f"Session {session_id}: session.idle received - agent completed")
+                        message_completed.set()
+                        break
+                    
+                    # Handle session.error - error
+                    if event_type == 'session.error':
+                        error_msg = _safe_get(properties, 'error') or _safe_get(properties, 'message') or 'Unknown error'
+                        logger.error(f"Session {session_id}: session.error received: {error_msg}")
+                        event_error.append(OpenCodeError(f"Session error: {error_msg}"))
+                        message_completed.set()
+                        break
+                    
+                    # Log unhandled event types for debugging
+                    if event_type and event_type not in ('server.connected', 'session.status', 'lsp.client.diagnostics', 'file.edited', 'file.watcher.updated'):
+                        logger.debug(f"Session {session_id}: Event {event_type} (not handled for streaming)")
+                        
+            except asyncio.CancelledError:
+                logger.debug(f"Session {session_id}: Event processing cancelled")
+            except Exception as e:
+                logger.warning(f"Session {session_id}: Event processing error: {e}")
+                event_error.append(e)
+                message_completed.set()
+        
+        # Start event processing task BEFORE sending message
+        event_task = asyncio.create_task(process_events())
         
         try:
-            # Call session.chat() with stream=True - returns async iterator
-            logger.info(f"Session {session_id}: Calling session.chat() with stream=True")
+            # Give event stream a moment to connect
+            await asyncio.sleep(0.1)
             
-            chat_response = client.session.chat(
+            # Send the message
+            logger.info(f"Session {session_id}: Sending message via session.chat()")
+            response = await client.session.chat(
                 session_id,
                 model_id=self.model_id,
                 provider_id=self.provider_id,
@@ -464,59 +579,32 @@ class OpenCodeClient:
                 mode=agent_name,
                 system=session_data["system_prompt"],
                 tools=tools,
-                stream=True,  # Enable streaming!
             )
             
-            # Mark message as sent once we start iterating
             message_sent = True
             
-            # Check if it's awaitable first (some SDKs return coroutine)
-            if hasattr(chat_response, '__await__'):
-                chat_response = await chat_response
+            # Check for immediate error in response
+            if hasattr(response, 'error') and response.error:
+                error_msg = str(response.error)
+                logger.error(f"Session {session_id}: Chat error: {error_msg}")
+                raise OpenCodeError(f"Chat error: {error_msg}")
             
-            # Now iterate over the streaming response
-            if hasattr(chat_response, '__aiter__'):
-                async for event in chat_response:
-                    # Extract text from the streaming event
-                    text = self._extract_text_from_stream_event(event)
-                    
-                    if text:
-                        chunk_count += 1
-                        accumulated_content.append(text)
-                        logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(text)} chars)")
-                        try:
-                            await output_callback(text)
-                        except Exception as e:
-                            logger.warning(f"Session {session_id}: Output callback error: {e}")
-                    
-                    # Check for completion or error in event
-                    event_type = _safe_get(event, 'type', '')
-                    if event_type in ('message.completed', 'session.idle', 'done'):
-                        logger.info(f"Session {session_id}: Completion event ({event_type}) received")
-                        break
-                    
-                    # Check for error
-                    error = _safe_get(event, 'error')
-                    if error:
-                        logger.error(f"Session {session_id}: Stream error: {error}")
-                        raise OpenCodeError(f"Stream error: {error}")
-            else:
-                # Not an async iterator - might be a single response
-                logger.info(f"Session {session_id}: chat() returned non-iterable, extracting content")
-                text = self._extract_text_from_stream_event(chat_response)
-                if text:
-                    accumulated_content.append(text)
-                    try:
-                        await output_callback(text)
-                    except Exception as e:
-                        logger.warning(f"Session {session_id}: Output callback error: {e}")
+            # Wait for completion with timeout
+            try:
+                await asyncio.wait_for(message_completed.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                logger.warning(f"Session {session_id}: Event stream timeout")
+            
+            # Check for errors from event processing
+            if event_error:
+                raise event_error[0]
             
             # Get final content
             content = ''.join(accumulated_content)
             
             # If no content from streaming, fetch via messages API
             if not content:
-                logger.info(f"Session {session_id}: No content from stream, fetching via messages API")
+                logger.info(f"Session {session_id}: No content from event stream, fetching via messages API")
                 content = await self._fetch_message_content(client, session_id)
                 if content and output_callback:
                     try:
@@ -524,7 +612,7 @@ class OpenCodeClient:
                     except Exception as e:
                         logger.warning(f"Session {session_id}: Final callback error: {e}")
             
-            logger.info(f"Session {session_id}: Direct streaming complete ({chunk_count} chunks, {len(content)} chars)")
+            logger.info(f"Session {session_id}: Event streaming complete ({len(content)} chars)")
             return {"content": content}
             
         except OpenCodeError:
@@ -532,14 +620,20 @@ class OpenCodeClient:
         except _MessageAlreadySentError:
             raise
         except Exception as e:
-            # If message was sent but streaming failed, signal to poll instead
             if message_sent:
                 raise _MessageAlreadySentError(
-                    f"Direct streaming failed after message sent: {e}",
+                    f"Event streaming failed after message sent: {e}",
                     accumulated_content
                 )
-            # Message not sent - let caller try another approach
             raise
+        finally:
+            # Clean up event task
+            if not event_task.done():
+                event_task.cancel()
+                try:
+                    await event_task
+                except asyncio.CancelledError:
+                    pass
     
     def _extract_text_from_stream_event(self, event: Any) -> Optional[str]:
         """
@@ -1327,7 +1421,6 @@ class OpenCodeClient:
                 mode=agent_name,
                 system=session_data["system_prompt"],
                 tools=tools,
-                stream=True,  # Enable streaming
             ) as response:
                 # Once we enter context, message has been sent
                 message_sent = True
@@ -2300,7 +2393,6 @@ class OpenCodeClient:
                     mode=session_data["agent"],
                     system=session_data["system_prompt"],
                     tools=tools,
-                    stream=True,  # Enable streaming
                 )
                 
                 # Check if result is async iterable (streaming supported)
@@ -2385,7 +2477,6 @@ class OpenCodeClient:
                 mode=session_data["agent"],
                 system=session_data["system_prompt"],
                 tools=tools,
-                stream=True,  # Enable streaming
             ) as response:
                 # Log response status for debugging
                 status_code = getattr(response, 'status_code', None)
