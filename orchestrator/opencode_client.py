@@ -455,6 +455,7 @@ class OpenCodeClient:
         event_error: List[Exception] = []
         events_stream: Any = None
         last_sent_content_length: List[int] = [0]  # Track for delta-style streaming
+        assistant_message_id: List[Optional[str]] = [None]  # Track assistant message ID to filter events
         
         async def process_events():
             """Background task to process SSE events."""
@@ -505,9 +506,16 @@ class OpenCodeClient:
                     
                     # Handle message.part.updated - real-time delta text
                     if event_type == 'message.part.updated':
-                        # Extract part ID for deduplication
+                        # Extract part and message ID for deduplication and filtering
                         part = _safe_get(properties, 'part')
                         part_id = _safe_get(part, 'id') if part else None
+                        part_message_id = _safe_get(part, 'message_id') if part else None
+                        
+                        # Only process events for the assistant message (skip user message events)
+                        # If assistant_message_id is not yet set, we can't filter yet - skip until we know the ID
+                        if assistant_message_id[0] is not None and part_message_id and part_message_id != assistant_message_id[0]:
+                            logger.debug(f"Session {session_id}: Skipping event for non-assistant message {part_message_id[:20] if part_message_id else 'N/A'}")
+                            continue
                         
                         text = self._extract_text_from_event(event, event_type)
                         if text:
@@ -633,6 +641,13 @@ class OpenCodeClient:
             )
             
             message_sent = True
+            
+            # Extract assistant message ID from response for filtering events
+            response_info = _safe_get(response, 'info', response)
+            extracted_msg_id = _safe_get(response_info, 'id') or _safe_get(response, 'id')
+            if extracted_msg_id:
+                assistant_message_id[0] = extracted_msg_id
+                logger.info(f"Session {session_id}: Assistant message ID: {extracted_msg_id}")
             
             # Check for immediate error in response
             if hasattr(response, 'error') and response.error:
