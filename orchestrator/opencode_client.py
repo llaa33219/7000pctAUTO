@@ -462,6 +462,7 @@ class OpenCodeClient:
         message_sent = False  # Track if message was successfully sent
         event_error: List[Exception] = []  # To pass errors from event task
         events_stream: Any = None  # Track for cleanup
+        last_sent_content_length: List[int] = [0]  # Track for delta-style streaming from session.updated
         
         async def process_events():
             """Background task to process SSE events.
@@ -527,12 +528,35 @@ class OpenCodeClient:
                                 logger.warning(f"Session {session_id}: Output callback error: {e}")
                         continue
                     
+                    # Handle session.updated - may contain message content updates
+                    # This is often where real-time text updates come from
+                    if event_type == 'session.updated':
+                        # Detailed logging for debugging
+                        event_info = self._get_event_debug_info(event)
+                        logger.debug(f"Session {session_id}: session.updated event: {event_info}")
+                        
+                        # Try to extract text from session.updated event
+                        full_text = self._extract_text_from_session_updated(event, properties)
+                        if full_text:
+                            # Delta-style: only send new content
+                            if len(full_text) > last_sent_content_length[0]:
+                                new_text = full_text[last_sent_content_length[0]:]
+                                last_sent_content_length[0] = len(full_text)
+                                chunk_count += 1
+                                accumulated_content.append(new_text)
+                                logger.info(f"Session {session_id}: session.updated delta chunk {chunk_count} ({len(new_text)} new chars, total {len(full_text)} chars)")
+                                try:
+                                    await output_callback(new_text)
+                                except Exception as e:
+                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
                     # Handle session.diff - real-time diff/streaming updates
                     # Some OpenCode servers send session.diff instead of message.part.updated
                     if event_type == 'session.diff':
                         # Detailed logging of entire event object for debugging
                         event_info = self._get_event_debug_info(event)
-                        logger.info(f"Session {session_id}: session.diff event received: {event_info}")
+                        logger.debug(f"Session {session_id}: session.diff event received: {event_info}")
                         
                         # Try to extract text from event (not just properties)
                         text = self._extract_text_from_session_diff_event(event, properties)
@@ -545,14 +569,14 @@ class OpenCodeClient:
                             except Exception as e:
                                 logger.warning(f"Session {session_id}: Output callback error: {e}")
                         else:
-                            logger.info(f"Session {session_id}: session.diff - no text extracted")
+                            logger.debug(f"Session {session_id}: session.diff - no text extracted")
                         continue
                     
                     # Note: message.updated is intentionally NOT handled here
                     # to avoid content duplication with message.part.updated events
                     
-                    # Log other event types for debugging (except message.updated which we skip)
-                    if event_type and event_type != 'message.updated':
+                    # Log other event types for debugging (except already handled ones)
+                    if event_type and event_type not in ('message.updated', 'session.updated', 'session.diff'):
                         logger.debug(f"Session {session_id}: Event {event_type} (not handled for streaming)")
                         
             except asyncio.CancelledError:
@@ -833,6 +857,136 @@ class OpenCodeClient:
             info_parts.append(f"debug_error={e}")
         
         return "; ".join(info_parts)
+    
+    def _extract_text_from_session_updated(self, event: Any, properties: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract text content from a session.updated event.
+        
+        session.updated events contain the current session state including messages.
+        We look for the last assistant message and extract its text content.
+        
+        Args:
+            event: The full event object
+            properties: Properties dict from the event
+            
+        Returns:
+            Full text content from the last assistant message, or None
+        """
+        if not properties:
+            # Try to get properties from event
+            if hasattr(event, 'properties'):
+                properties = event.properties
+            elif hasattr(event, 'model_dump'):
+                try:
+                    dump = event.model_dump()
+                    properties = dump.get('properties', {})
+                except Exception:
+                    pass
+        
+        if not properties:
+            return None
+        
+        # Convert to dict if needed
+        props_dict = properties
+        if not isinstance(properties, dict):
+            if hasattr(properties, 'model_dump'):
+                try:
+                    props_dict = properties.model_dump()
+                except Exception:
+                    pass
+            elif hasattr(properties, '__dict__'):
+                props_dict = properties.__dict__
+        
+        if not isinstance(props_dict, dict):
+            return None
+        
+        # Try to find messages in the session data
+        # The structure might be: properties.messages or properties.session.messages
+        messages = None
+        
+        # Direct messages array
+        messages = props_dict.get('messages')
+        
+        # Try session.messages
+        if not messages:
+            session = props_dict.get('session')
+            if isinstance(session, dict):
+                messages = session.get('messages')
+            elif hasattr(session, 'messages'):
+                messages = session.messages
+        
+        # Try data.messages
+        if not messages:
+            data = props_dict.get('data')
+            if isinstance(data, dict):
+                messages = data.get('messages')
+        
+        if not messages or not isinstance(messages, list):
+            # Log what we have for debugging
+            logger.debug(f"session.updated: no messages found. Keys: {list(props_dict.keys()) if isinstance(props_dict, dict) else 'N/A'}")
+            return None
+        
+        # Find the last assistant message
+        last_assistant_msg = None
+        for msg in reversed(messages):
+            msg_dict = msg
+            if not isinstance(msg, dict):
+                if hasattr(msg, 'model_dump'):
+                    try:
+                        msg_dict = msg.model_dump()
+                    except Exception:
+                        continue
+                elif hasattr(msg, '__dict__'):
+                    msg_dict = msg.__dict__
+                else:
+                    continue
+            
+            # Check role
+            role = msg_dict.get('role')
+            if not role:
+                info = msg_dict.get('info', {})
+                if isinstance(info, dict):
+                    role = info.get('role')
+            
+            if role == 'assistant':
+                last_assistant_msg = msg_dict
+                break
+        
+        if not last_assistant_msg:
+            return None
+        
+        # Extract text from parts
+        parts = last_assistant_msg.get('parts', [])
+        if not parts:
+            # Try content field
+            content = last_assistant_msg.get('content')
+            if isinstance(content, str):
+                return content
+            return None
+        
+        texts = []
+        for part in parts:
+            part_dict = part
+            if not isinstance(part, dict):
+                if hasattr(part, 'model_dump'):
+                    try:
+                        part_dict = part.model_dump()
+                    except Exception:
+                        continue
+                elif hasattr(part, '__dict__'):
+                    part_dict = part.__dict__
+                else:
+                    continue
+            
+            if part_dict.get('type') == 'text':
+                text = part_dict.get('text', '')
+                if text:
+                    texts.append(text)
+        
+        if texts:
+            return ''.join(texts)
+        
+        return None
     
     def _extract_text_from_session_diff_event(self, event: Any, properties: Dict[str, Any]) -> Optional[str]:
         """
