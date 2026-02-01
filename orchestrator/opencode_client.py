@@ -470,6 +470,11 @@ class OpenCodeClient:
                     if message_completed.is_set():
                         break
                     
+                    # Log raw event for debugging (first few events)
+                    if chunk_count < 10:
+                        event_debug = self._get_event_debug_info(event)
+                        logger.debug(f"Session {session_id}: Raw event {chunk_count}: {event_debug}")
+                    
                     # Get event properties
                     properties = _safe_get(event, 'properties', {})
                     if not isinstance(properties, dict):
@@ -569,9 +574,12 @@ class OpenCodeClient:
                         message_completed.set()
                         break
                     
-                    # Log unhandled event types for debugging
-                    if event_type and event_type not in ('server.connected', 'session.status', 'lsp.client.diagnostics', 'file.edited', 'file.watcher.updated', 'server.heartbeat'):
-                        logger.debug(f"Session {session_id}: Event {event_type} (not handled for streaming)")
+                    # Log ALL event types received (helps debug which events are actually sent)
+                    if event_type:
+                        if event_type not in ('server.connected', 'session.status', 'lsp.client.diagnostics', 'file.edited', 'file.watcher.updated', 'server.heartbeat'):
+                            # For important events, log more details
+                            props_keys = list(properties.keys()) if isinstance(properties, dict) else 'N/A'
+                            logger.info(f"Session {session_id}: Event '{event_type}' received, properties keys: {props_keys}")
                         
             except asyncio.CancelledError:
                 logger.debug(f"Session {session_id}: Event processing cancelled")
@@ -991,7 +999,24 @@ class OpenCodeClient:
         
         if not messages or not isinstance(messages, list):
             # Log what we have for debugging
-            logger.debug(f"session.updated: no messages found. Keys: {list(props_dict.keys()) if isinstance(props_dict, dict) else 'N/A'}")
+            logger.info(f"session.updated: no messages found. Keys: {list(props_dict.keys()) if isinstance(props_dict, dict) else 'N/A'}")
+            
+            # Try to extract from 'info' object - this might contain message content
+            info = props_dict.get('info') if isinstance(props_dict, dict) else None
+            if info:
+                text = self._extract_text_from_info_object(info)
+                if text:
+                    logger.info(f"session.updated: extracted text from info object ({len(text)} chars)")
+                    return text
+                else:
+                    # Log info structure for debugging
+                    info_keys = list(info.keys()) if isinstance(info, dict) else 'not a dict'
+                    logger.debug(f"session.updated: info object keys: {info_keys}")
+                    if isinstance(info, dict):
+                        # Log a sample of the info structure (truncated)
+                        info_sample = str(info)[:500]
+                        logger.debug(f"session.updated: info sample: {info_sample}")
+            
             return None
         
         # Find the last assistant message
@@ -1053,6 +1078,145 @@ class OpenCodeClient:
         
         if texts:
             return ''.join(texts)
+        
+        return None
+    
+    def _extract_text_from_info_object(self, info: Any) -> Optional[str]:
+        """
+        Extract text content from an 'info' object in session.updated events.
+        
+        The info object might contain message content in various formats:
+        - Direct text/content fields
+        - Nested parts array
+        - Message-like structures
+        
+        Args:
+            info: Info object from session.updated event properties
+            
+        Returns:
+            Extracted text or None
+        """
+        if info is None:
+            return None
+        
+        # Convert to dict if needed
+        info_dict = info
+        if not isinstance(info, dict):
+            if hasattr(info, 'model_dump'):
+                try:
+                    info_dict = info.model_dump()
+                except Exception:
+                    pass
+            elif hasattr(info, '__dict__'):
+                info_dict = info.__dict__
+        
+        if not isinstance(info_dict, dict):
+            # If it's a string, return it
+            if isinstance(info, str):
+                return info if info.strip() else None
+            return None
+        
+        # Try direct text/content fields
+        for field in ['text', 'content', 'message', 'value', 'output']:
+            value = info_dict.get(field)
+            if isinstance(value, str) and value.strip():
+                return value
+        
+        # Try parts array (OpenCode message format)
+        parts = info_dict.get('parts')
+        if isinstance(parts, list):
+            texts = []
+            for part in parts:
+                if isinstance(part, dict):
+                    if part.get('type') == 'text':
+                        t = part.get('text')
+                        if t:
+                            texts.append(t)
+                    # Also try content field in part
+                    elif 'content' in part:
+                        t = part.get('content')
+                        if isinstance(t, str) and t:
+                            texts.append(t)
+            if texts:
+                return ''.join(texts)
+        
+        # Try messages array inside info
+        messages = info_dict.get('messages')
+        if isinstance(messages, list):
+            # Find last assistant message
+            for msg in reversed(messages):
+                msg_dict = msg if isinstance(msg, dict) else (msg.__dict__ if hasattr(msg, '__dict__') else {})
+                role = msg_dict.get('role')
+                if role == 'assistant':
+                    # Extract from message parts
+                    msg_parts = msg_dict.get('parts', [])
+                    texts = []
+                    for part in msg_parts:
+                        if isinstance(part, dict) and part.get('type') == 'text':
+                            t = part.get('text')
+                            if t:
+                                texts.append(t)
+                    if texts:
+                        return ''.join(texts)
+                    # Try direct content
+                    content = msg_dict.get('content')
+                    if isinstance(content, str):
+                        return content
+        
+        # Try delta format (streaming)
+        delta = info_dict.get('delta')
+        if isinstance(delta, dict):
+            text = delta.get('text') or delta.get('content')
+            if isinstance(text, str):
+                return text
+        
+        # Try assistant field (might contain assistant message)
+        assistant = info_dict.get('assistant')
+        if assistant:
+            if isinstance(assistant, str):
+                return assistant
+            elif isinstance(assistant, dict):
+                text = assistant.get('text') or assistant.get('content')
+                if isinstance(text, str):
+                    return text
+                # Check parts in assistant
+                asst_parts = assistant.get('parts', [])
+                texts = []
+                for part in asst_parts:
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        t = part.get('text')
+                        if t:
+                            texts.append(t)
+                if texts:
+                    return ''.join(texts)
+        
+        # Try response field
+        response = info_dict.get('response')
+        if response:
+            if isinstance(response, str):
+                return response
+            elif isinstance(response, dict):
+                text = response.get('text') or response.get('content')
+                if isinstance(text, str):
+                    return text
+        
+        # Try output field  
+        output = info_dict.get('output')
+        if output:
+            if isinstance(output, str):
+                return output
+            elif isinstance(output, dict):
+                text = output.get('text') or output.get('content')
+                if isinstance(text, str):
+                    return text
+        
+        # Recursively check nested objects for common content fields
+        for key in ['data', 'result', 'payload', 'body']:
+            nested = info_dict.get(key)
+            if isinstance(nested, dict):
+                result = self._extract_text_from_info_object(nested)
+                if result:
+                    return result
         
         return None
     
