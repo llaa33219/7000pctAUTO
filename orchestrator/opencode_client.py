@@ -338,13 +338,19 @@ class OpenCodeClient:
         """
         Send a message with real-time streaming output.
         
-        Uses a hybrid approach:
-        1. Start event.subscribe() SSE stream in background to receive real-time events
+        Uses OpenCode SDK event-based streaming:
+        1. Start event.subscribe() SSE stream to receive real-time events
         2. Call session.chat() to send the message
-        3. Filter events for this session and forward to output_callback
-        4. Detect completion and return final content
+        3. Handle events filtered by session_id:
+           - message.part.updated: Real-time delta text chunks
+           - session.idle: Completion detection
+           - session.error: Error handling
+        4. Return final content when session.idle is received
         
-        Falls back to polling if event streaming fails.
+        Note: message.updated events are intentionally ignored to avoid
+        content duplication with message.part.updated events.
+        
+        Falls back to with_streaming_response, then polling if event streaming fails.
         
         Args:
             session_id: Session ID from create_session
@@ -410,11 +416,19 @@ class OpenCodeClient:
         """
         Send a message using event.subscribe() for real-time streaming.
         
+        Uses OpenCode SDK event types:
+        - message.part.updated: Real-time delta/streaming text chunks
+        - session.idle: Completion indicator
+        - session.error: Error indicator
+        
+        Note: message.updated events are intentionally NOT handled to avoid
+        content duplication with message.part.updated events.
+        
         This approach:
         1. Starts event subscription BEFORE sending message (to not miss events)
         2. Sends message via session.chat()
-        3. Processes events filtered by session_id
-        4. Returns when message is complete
+        3. Processes events filtered by session_id (supports sessionID, sessionId, session_id)
+        4. Returns when session.idle is received
         
         If message is sent but event streaming fails, raises _MessageAlreadySentError
         to signal the caller should poll instead of sending another message.
@@ -450,8 +464,18 @@ class OpenCodeClient:
         events_stream: Any = None  # Track for cleanup
         
         async def process_events():
-            """Background task to process SSE events."""
+            """Background task to process SSE events.
+            
+            Handles event types:
+            - message.part.updated: Real-time delta/streaming text
+            - session.idle: Completion indicator
+            - session.error: Error indicator
+            
+            Note: message.updated is intentionally NOT handled to avoid
+            content duplication with message.part.updated events.
+            """
             nonlocal events_stream
+            
             try:
                 # Subscribe to SSE event stream
                 events_stream = await client.event.subscribe()
@@ -466,29 +490,49 @@ class OpenCodeClient:
                     event_type = _safe_get(event, 'type', '')
                     properties = _safe_get(event, 'properties', {})
                     
-                    # Filter by session ID
-                    event_session_id = _safe_get(properties, 'sessionId') or _safe_get(properties, 'session_id')
+                    # Filter by session ID (support both camelCase and snake_case)
+                    event_session_id = (
+                        _safe_get(properties, 'sessionID') or 
+                        _safe_get(properties, 'sessionId') or 
+                        _safe_get(properties, 'session_id')
+                    )
                     if event_session_id and event_session_id != session_id:
                         continue
                     
-                    logger.info(f"Session {session_id}: Event {event_type} received")
-                    
-                    # Extract text content from event
-                    text = self._extract_text_from_event(event)
-                    if text:
-                        chunk_count += 1
-                        accumulated_content.append(text)
-                        logger.info(f"Session {session_id}: Event chunk {chunk_count} ({len(text)} chars)")
-                        try:
-                            await output_callback(text)
-                        except Exception as e:
-                            logger.warning(f"Session {session_id}: Output callback error: {e}")
+                    # Check for error events first
+                    if self._is_error_event(event_type, properties):
+                        error_msg = _safe_get(properties, 'error') or _safe_get(properties, 'message') or 'Unknown error'
+                        logger.error(f"Session {session_id}: Error event received: {error_msg}")
+                        event_error.append(Exception(f"Session error: {error_msg}"))
+                        message_completed.set()
+                        break
                     
                     # Check for completion events
                     if self._is_completion_event(event_type, properties):
-                        logger.info(f"Session {session_id}: Completion event detected")
+                        logger.info(f"Session {session_id}: Completion event ({event_type}) detected")
                         message_completed.set()
                         break
+                    
+                    # Handle message.part.updated - real-time streaming delta
+                    # This is the primary streaming event from OpenCode SDK
+                    if event_type == 'message.part.updated':
+                        text = self._extract_text_from_event(event, event_type)
+                        if text:
+                            chunk_count += 1
+                            accumulated_content.append(text)
+                            logger.info(f"Session {session_id}: Streaming chunk {chunk_count} ({len(text)} chars)")
+                            try:
+                                await output_callback(text)
+                            except Exception as e:
+                                logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
+                    # Note: message.updated is intentionally NOT handled here
+                    # to avoid content duplication with message.part.updated events
+                    
+                    # Log other event types for debugging (except message.updated which we skip)
+                    if event_type and event_type != 'message.updated':
+                        logger.debug(f"Session {session_id}: Event {event_type} (not handled for streaming)")
                         
             except asyncio.CancelledError:
                 logger.info(f"Session {session_id}: Event processing cancelled")
@@ -583,12 +627,17 @@ class OpenCodeClient:
             except asyncio.CancelledError:
                 pass
     
-    def _extract_text_from_event(self, event: Any) -> Optional[str]:
+    def _extract_text_from_event(self, event: Any, event_type: str = "") -> Optional[str]:
         """
         Extract text content from an SSE event.
         
+        Handles different event types:
+        - message.part.updated: Extract delta/incremental text
+        - message.updated: Extract full message content
+        
         Args:
             event: Event object from event.subscribe()
+            event_type: The event type string for specialized handling
             
         Returns:
             Extracted text or None
@@ -598,8 +647,72 @@ class OpenCodeClient:
         
         properties = _safe_get(event, 'properties', {})
         
+        # Handle message.part.updated - delta/streaming content
+        if event_type == 'message.part.updated':
+            # Try delta object first (most common for streaming)
+            delta = _safe_get(properties, 'delta')
+            if isinstance(delta, dict):
+                text = _safe_get(delta, 'text') or _safe_get(delta, 'content')
+                if text and isinstance(text, str):
+                    return text
+            
+            # Try direct text in properties
+            text = _safe_get(properties, 'text')
+            if text and isinstance(text, str):
+                return text
+            
+            # Try part object
+            part = _safe_get(properties, 'part')
+            if isinstance(part, dict):
+                text = _safe_get(part, 'text') or _safe_get(part, 'content')
+                if text and isinstance(text, str):
+                    return text
+            
+            return None
+        
+        # Handle message.updated - full message content
+        if event_type == 'message.updated':
+            # Try parts array in properties
+            parts = _safe_get(properties, 'parts')
+            if isinstance(parts, list):
+                texts = []
+                for part in parts:
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        t = part.get('text')
+                        if t:
+                            texts.append(t)
+                if texts:
+                    return ''.join(texts)
+            
+            # Try message object
+            message = _safe_get(properties, 'message')
+            if isinstance(message, dict):
+                # Check message parts
+                msg_parts = _safe_get(message, 'parts')
+                if isinstance(msg_parts, list):
+                    texts = []
+                    for part in msg_parts:
+                        if isinstance(part, dict) and part.get('type') == 'text':
+                            t = part.get('text')
+                            if t:
+                                texts.append(t)
+                    if texts:
+                        return ''.join(texts)
+                
+                # Direct content
+                text = _safe_get(message, 'content') or _safe_get(message, 'text')
+                if text and isinstance(text, str):
+                    return text
+            
+            # Direct content in properties
+            text = _safe_get(properties, 'content') or _safe_get(properties, 'text')
+            if text and isinstance(text, str):
+                return text
+            
+            return None
+        
+        # Generic fallback for other event types
         # Try various property locations for text content
-        # Direct text/content in properties
         text = _safe_get(properties, 'text') or _safe_get(properties, 'content')
         if text and isinstance(text, str):
             return text
@@ -629,7 +742,6 @@ class OpenCodeClient:
             text = _safe_get(message, 'content') or _safe_get(message, 'text')
             if text and isinstance(text, str):
                 return text
-            # Check message parts
             msg_parts = _safe_get(message, 'parts')
             if isinstance(msg_parts, list):
                 texts = []
@@ -647,6 +759,8 @@ class OpenCodeClient:
         """
         Check if an event indicates message completion.
         
+        Primary completion event: session.idle
+        
         Args:
             event_type: Event type string
             properties: Event properties dict
@@ -654,7 +768,11 @@ class OpenCodeClient:
         Returns:
             True if this is a completion event
         """
-        # Check event type patterns
+        # Primary: session.idle indicates agent finished responding
+        if event_type == 'session.idle':
+            return True
+        
+        # Secondary: check other completion patterns
         completion_types = [
             'message.complete',
             'message.completed',
@@ -664,19 +782,14 @@ class OpenCodeClient:
             'session.completed',
             'response.complete',
             'response.done',
-            'done',
-            'complete',
-            'finished',
         ]
         
-        event_type_lower = event_type.lower() if event_type else ''
-        for ct in completion_types:
-            if ct in event_type_lower:
-                return True
+        if event_type in completion_types:
+            return True
         
         # Check properties for completion indicators
         status = _safe_get(properties, 'status')
-        if status in ('completed', 'complete', 'done', 'finished'):
+        if status in ('completed', 'complete', 'done', 'finished', 'idle'):
             return True
         
         finish = _safe_get(properties, 'finish') or _safe_get(properties, 'finish_reason')
@@ -686,6 +799,38 @@ class OpenCodeClient:
         # Check for time.completed in message info
         time_info = _safe_get(properties, 'time')
         if time_info and _safe_get(time_info, 'completed'):
+            return True
+        
+        return False
+    
+    def _is_error_event(self, event_type: str, properties: Dict[str, Any]) -> bool:
+        """
+        Check if an event indicates an error.
+        
+        Primary error event: session.error
+        
+        Args:
+            event_type: Event type string
+            properties: Event properties dict
+            
+        Returns:
+            True if this is an error event
+        """
+        # Primary: session.error
+        if event_type == 'session.error':
+            return True
+        
+        # Secondary: other error patterns
+        error_types = ['error', 'session.failed', 'message.error']
+        if event_type in error_types:
+            return True
+        
+        # Check properties for error indicators
+        if _safe_get(properties, 'error'):
+            return True
+        
+        status = _safe_get(properties, 'status')
+        if status in ('error', 'failed'):
             return True
         
         return False
