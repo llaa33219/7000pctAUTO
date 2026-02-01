@@ -507,6 +507,24 @@ class OpenCodeClient:
                                 logger.warning(f"Session {session_id}: Output callback error: {e}")
                         continue
                     
+                    # Handle message.updated - contains full message content
+                    # Use delta-style streaming: only send new content since last update
+                    if event_type == 'message.updated':
+                        full_text = self._extract_text_from_event(event, event_type)
+                        if full_text:
+                            # Delta-style: only send new content
+                            if len(full_text) > last_sent_content_length[0]:
+                                new_text = full_text[last_sent_content_length[0]:]
+                                last_sent_content_length[0] = len(full_text)
+                                chunk_count += 1
+                                accumulated_content.append(new_text)
+                                logger.info(f"Session {session_id}: message.updated delta chunk {chunk_count} ({len(new_text)} new chars, total {len(full_text)})")
+                                try:
+                                    await output_callback(new_text)
+                                except Exception as e:
+                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
                     # Handle session.updated - may contain message content
                     if event_type == 'session.updated':
                         full_text = self._extract_text_from_session_updated(event, properties)
@@ -552,7 +570,7 @@ class OpenCodeClient:
                         break
                     
                     # Log unhandled event types for debugging
-                    if event_type and event_type not in ('server.connected', 'session.status', 'lsp.client.diagnostics', 'file.edited', 'file.watcher.updated'):
+                    if event_type and event_type not in ('server.connected', 'session.status', 'lsp.client.diagnostics', 'file.edited', 'file.watcher.updated', 'server.heartbeat'):
                         logger.debug(f"Session {session_id}: Event {event_type} (not handled for streaming)")
                         
             except asyncio.CancelledError:
