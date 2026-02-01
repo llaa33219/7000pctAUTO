@@ -1,83 +1,194 @@
 # 7000%AUTO
 
-> AI Automation System with 6 Orchestrated Agents powered by MiniMax M2.1
+> Fully Autonomous AI Software Factory — From Idea to Production in One Command
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
-[![Railway](https://img.shields.io/badge/Railway-Deploy-purple.svg)](https://railway.app/)
+[![OpenCode](https://img.shields.io/badge/OpenCode-AI-purple.svg)](https://opencode.ai/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## 🚀 Overview
+## Overview
 
-7000%AUTO is a fully autonomous AI system that orchestrates 6 specialized agents to ideate, plan, develop, test, deploy, and promote software projects. Built with FastAPI and powered by MiniMax M2.1 model through OpenCode SDK.
+**7000%AUTO** is a fully autonomous AI system that creates complete software projects from scratch. It orchestrates 6 specialized AI agents that work together in a pipeline to ideate, plan, develop, test, deploy, and promote software — all without human intervention.
+
+The system discovers trending topics from sources like arXiv, Reddit, and Hacker News, generates innovative project ideas, creates detailed implementation plans, writes production-ready code, runs tests until they pass, deploys to Gitea, and promotes the project on X/Twitter.
+
+## How It Works
 
 ### Agent Pipeline
 
 ```
-┌─────────┐    ┌─────────┐    ┌───────────┐    ┌────────┐    ┌──────────┐    ┌────────────┐
-│ Ideator │ -> │ Planner │ -> │ Developer │ -> │ Tester │ -> │ Uploader │ -> │ Evangelist │
-└─────────┘    └─────────┘    └───────────┘    └────────┘    └──────────┘    └────────────┘
-     │              │               │              │              │                │
-   Ideas         Plans           Code          Tests          GitHub            Social
-                                                              Deploy            Posts
+┌──────────┐    ┌──────────┐    ┌───────────┐    ┌────────┐    ┌──────────┐    ┌────────────┐
+│ Ideator  │───▶│ Planner  │───▶│ Developer │◀──▶│ Tester │───▶│ Uploader │───▶│ Evangelist │
+└──────────┘    └──────────┘    └───────────┘    └────────┘    └──────────┘    └────────────┘
+     │               │               │               │              │                │
+  Searches       Creates         Writes          Runs          Pushes to        Posts to
+  for trends     detailed        code            tests         Gitea with       X/Twitter
+  & generates    plans           & fixes         & CI/CD       Actions CI
+  ideas                          bugs
 ```
 
-## 🤖 Agents
+### Agents
 
-| Agent | Role | Tools |
-|-------|------|-------|
-| **Ideator** | Generates innovative project ideas and concepts | Search |
-| **Planner** | Creates detailed project plans and task breakdowns | Search, Database |
-| **Developer** | Implements production-ready code | Search, Gitea, Database |
-| **Tester** | Tests implementations and ensures quality | Search, Gitea, Database |
-| **Uploader** | Deploys code to Gitea repositories | Gitea, Database |
-| **Evangelist** | Promotes projects on social media | X/Twitter, Search, Database |
+| Agent | Role | MCP Tools Used |
+|-------|------|----------------|
+| **Ideator** 💡 | Searches arXiv, Reddit, HN, Product Hunt for trends and generates unique project ideas | `search_arxiv`, `search_reddit`, `search_hackernews`, `search_producthunt`, `submit_idea` |
+| **Planner** 📋 | Creates comprehensive implementation plans with tech stack, file structure, and testing strategy | `submit_plan` |
+| **Developer** 👨‍💻 | Implements production-ready code following the plan; fixes bugs reported by Tester | `get_test_result`, `get_ci_result`, `submit_implementation_status` |
+| **Tester** 🧪 | Runs linting, type checking, unit tests; validates CI/CD after upload | `submit_test_result`, `get_latest_workflow_status`, `submit_ci_result` |
+| **Uploader** 🚀 | Creates Gitea repository, sets up CI/CD workflows, pushes code | `create_repo`, `push_files`, `setup_actions`, `submit_upload_status` |
+| **Evangelist** 📣 | Creates and posts promotional content on X/Twitter | `post_tweet` |
 
-## 📋 Prerequisites
+### Key Features
 
-- Python 3.11+
-- MiniMax API key ([Get one here](https://platform.minimax.chat))
-- Gitea Personal Access Token (Create in your Gitea instance settings)
-- X/Twitter API keys ([Developer Portal](https://developer.twitter.com/en/portal/dashboard))
+- **Infinite Dev-Test Loop**: Developer and Tester iterate until all tests pass — no human intervention needed
+- **CI/CD Verification**: After upload, Tester verifies Gitea Actions pass; Developer fixes any CI failures
+- **Real-time Dashboard**: Web UI with SSE streaming shows live agent activity and progress
+- **MCP-based Communication**: Agents communicate through structured MCP tools, not raw text parsing
+- **Provider Agnostic**: Works with any AI provider via OpenCode SDK (Anthropic, OpenAI, MiniMax, etc.)
 
-## 🛠️ Installation
+## Architecture
 
-### Local Development
+```
+7000auto/
+├── main.py                     # FastAPI app entry point, orchestrator lifecycle
+├── config.py                   # Environment-based configuration (Pydantic Settings)
+├── orchestrator/
+│   ├── workflow.py             # WorkflowOrchestrator - runs the agent pipeline
+│   ├── opencode_client.py      # OpenCode SDK client wrapper
+│   └── state.py                # In-memory project state management
+├── mcp_servers/
+│   ├── search_mcp.py           # arXiv, Reddit, HN, Product Hunt search
+│   ├── gitea_mcp.py            # Gitea repository operations
+│   ├── x_mcp.py                # X/Twitter posting
+│   ├── database_mcp.py         # Idea/plan submission tools
+│   └── devtest_mcp.py          # Developer-Tester communication tools
+├── database/
+│   ├── models.py               # SQLAlchemy ORM models
+│   └── db.py                   # Async database operations
+├── web/
+│   ├── app.py                  # Dashboard FastAPI app with SSE
+│   └── templates/dashboard.html
+└── .opencode/agent/            # Agent system prompts
+    ├── ideator.md
+    ├── planner.md
+    ├── developer.md
+    ├── tester.md
+    ├── uploader.md
+    └── evangelist.md
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone https://7000pct.gitea.bloupla.net/yourusername/7000auto.git
-   cd 7000auto
-   ```
+## Prerequisites
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+- **Python 3.11+**
+- **Node.js 20+** (for OpenCode CLI)
+- **OpenCode CLI** (`npm install -g opencode-ai`)
+- **Gitea Instance** with Personal Access Token
+- **X/Twitter API** credentials (for Evangelist agent)
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Installation
 
-4. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
+### 1. Clone and Setup
 
-5. **Run the application**
-   ```bash
-   python main.py
-   ```
+```bash
+git clone <repository-url>
+cd 7000auto
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment
+
+Create a `.env` file with your credentials:
+
+```bash
+# Required: AI Provider Configuration
+OPENCODE_API_KEY=your-api-key
+OPENCODE_API_BASE=https://api.anthropic.com/v1  # or your provider's URL
+OPENCODE_SDK=@ai-sdk/anthropic                   # or @ai-sdk/openai, etc.
+OPENCODE_MODEL=claude-sonnet-4-20250514               # or gpt-4o, etc.
+OPENCODE_MAX_TOKENS=8192
+
+# Required: Gitea Configuration
+GITEA_TOKEN=your-gitea-personal-access-token
+GITEA_USERNAME=your-username
+GITEA_URL=https://your-gitea-instance.com
+
+# Required: X/Twitter Configuration
+X_API_KEY=your-consumer-key
+X_API_SECRET=your-consumer-secret
+X_ACCESS_TOKEN=your-access-token
+X_ACCESS_TOKEN_SECRET=your-access-token-secret
+
+# Optional
+DATABASE_URL=sqlite+aiosqlite:///./data/7000auto.db
+AUTO_START=true
+DEBUG=false
+PORT=8000
+```
+
+### 3. Run
+
+```bash
+python main.py
+```
+
+The system will:
+1. Initialize the database
+2. Generate `opencode.json` from environment variables
+3. Start the OpenCode server
+4. Begin the autonomous pipeline (if `AUTO_START=true`)
+5. Serve the dashboard at `http://localhost:8000/dashboard`
+
+## Configuration Reference
+
+### Required Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OPENCODE_API_KEY` | API key for your AI provider |
+| `OPENCODE_API_BASE` | Provider's API base URL |
+| `OPENCODE_SDK` | AI SDK npm package (e.g., `@ai-sdk/anthropic`) |
+| `OPENCODE_MODEL` | Model identifier (e.g., `claude-sonnet-4-20250514`) |
+| `OPENCODE_MAX_TOKENS` | Maximum output tokens |
+| `GITEA_TOKEN` | Gitea Personal Access Token |
+| `GITEA_USERNAME` | Gitea username for repository creation |
+| `X_API_KEY` | Twitter/X Consumer Key |
+| `X_API_SECRET` | Twitter/X Consumer Secret |
+| `X_ACCESS_TOKEN` | Twitter/X Access Token |
+| `X_ACCESS_TOKEN_SECRET` | Twitter/X Access Token Secret |
+
+### Optional Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITEA_URL` | `https://7000pct.gitea.bloupla.net` | Gitea server URL |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./data/7000auto.db` | Database connection URL |
+| `AUTO_START` | `true` | Auto-start pipeline on boot |
+| `MAX_CONCURRENT_PROJECTS` | `1` | Max concurrent projects |
+| `DEBUG` | `false` | Enable debug mode |
+| `PORT` | `8000` | Server port |
+| `LOG_LEVEL` | `INFO` | Logging level |
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Redirect to dashboard |
+| `GET` | `/dashboard` | Real-time monitoring dashboard |
+| `GET` | `/health` | Health check with component status |
+| `GET` | `/status` | Detailed system status |
+| `GET` | `/dashboard/api/stream` | SSE stream for real-time events |
+| `GET` | `/dashboard/api/status` | Dashboard status data |
+| `GET` | `/dashboard/api/logs` | Recent agent logs |
+
+## Deployment
 
 ### Docker
 
 ```bash
-# Build the image
 docker build -t 7000auto .
-
-# Run the container
 docker run -d \
   -p 8000:8000 \
   --env-file .env \
@@ -85,170 +196,71 @@ docker run -d \
   7000auto
 ```
 
-### Railway Deployment
+### Railway
 
-1. Connect your GitHub repository to Railway
-2. Add environment variables in Railway dashboard
-3. Deploy automatically on push
+The project includes `railway.json` for one-click deployment:
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new)
+1. Connect your repository to Railway
+2. Add environment variables in the Railway dashboard
+3. Deploy
 
-## 🔧 Configuration
+## MCP Servers
 
-### Environment Variables
+The system uses Model Context Protocol (MCP) servers to provide tools to AI agents:
 
-| Variable | Description | Required | Default |
-|----------|-------------|----------|---------|
-| `MINIMAX_API_KEY` | MiniMax API key | ✅ | - |
-| `MINIMAX_MODEL` | Model identifier | ❌ | `minimax-m2.1` |
-| `GITEA_TOKEN` | Gitea personal access token | ✅ | - |
-| `GITEA_USERNAME` | Gitea username for repo creation | ✅ | - |
-| `GITEA_URL` | Gitea server URL | ❌ | `https://7000pct.gitea.bloupla.net` |
-| `X_API_KEY` | Twitter API key | ✅ | - |
-| `X_API_SECRET` | Twitter API secret | ✅ | - |
-| `X_ACCESS_TOKEN` | Twitter access token | ✅ | - |
-| `X_ACCESS_TOKEN_SECRET` | Twitter access token secret | ✅ | - |
-| `DATABASE_URL` | Database connection URL | ❌ | `sqlite+aiosqlite:///./data/7000auto.db` |
-| `WORKSPACE_DIR` | Workspace directory | ❌ | `./workspace` |
-| `PORT` | Server port | ❌ | `8000` |
-| `DEBUG` | Debug mode | ❌ | `false` |
+| Server | Tools |
+|--------|-------|
+| **search** | `search_arxiv`, `search_reddit`, `search_hackernews`, `search_producthunt` |
+| **gitea** | `create_repo`, `push_files`, `create_release`, `setup_actions`, `get_latest_workflow_status`, `get_workflow_run_jobs` |
+| **x_api** | `post_tweet`, `search_tweets` |
+| **database** | `get_previous_ideas`, `check_idea_exists`, `submit_idea`, `submit_plan` |
+| **devtest** | `submit_test_result`, `get_test_result`, `submit_implementation_status`, `get_implementation_status`, `submit_ci_result`, `get_ci_result`, `submit_upload_status` |
 
-### OpenCode Configuration
+## Workflow Details
 
-The `opencode.json` file configures the OpenCode SDK and MCP servers:
+### Pipeline Flow
 
-```json
-{
-  "provider": "minimax",
-  "model": "minimax-m2.1",
-  "mcpServers": {
-    "search": { "enabled": true },
-    "gitea": { "enabled": true },
-    "x_api": { "enabled": true },
-    "database": { "enabled": true }
-  }
-}
-```
+1. **Ideation**: Ideator searches multiple sources, checks for duplicate ideas in database, generates a unique project idea
+2. **Planning**: Planner creates detailed implementation plan with tech stack, file structure, features, and testing strategy
+3. **Development Loop** (infinite until pass):
+   - Developer implements/fixes code
+   - Tester runs linting, type checking, tests
+   - If tests fail → Developer fixes → Tester retests
+4. **Upload & CI Loop** (max 5 iterations):
+   - Uploader pushes to Gitea with CI workflow
+   - Tester checks Gitea Actions status
+   - If CI fails → Developer fixes → Uploader re-pushes
+5. **Promotion**: Evangelist creates and posts tweet with Gitea link
 
-## 📡 API Endpoints
+### Agent Communication
 
-### Projects
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/projects` | Create a new project |
-| `GET` | `/projects` | List all projects |
-| `GET` | `/projects/{id}` | Get project details |
-| `POST` | `/projects/{id}/retry` | Retry a failed project |
-| `POST` | `/projects/{id}/pause` | Pause a running project |
-| `POST` | `/projects/{id}/resume` | Resume a paused project |
-| `GET` | `/projects/{id}/logs` | Get project logs |
-
-### System
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/` | Application info |
-| `GET` | `/health` | Health check |
-| `GET` | `/stats` | System statistics |
-| `GET` | `/agents` | List all agents |
-| `GET` | `/config` | Current configuration |
-
-### Example Usage
-
-```bash
-# Create a new project
-curl -X POST http://localhost:8000/projects \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My Awesome Project", "description": "A CLI tool for productivity"}'
-
-# List projects
-curl http://localhost:8000/projects
-
-# Get project status
-curl http://localhost:8000/projects/{project_id}
-
-# Check system health
-curl http://localhost:8000/health
-```
-
-## 🏗️ Project Structure
+Agents don't parse each other's raw output. Instead, they communicate through structured MCP tools:
 
 ```
-7000auto/
-├── main.py              # FastAPI app, orchestrator, and API endpoints
-├── config.py            # Environment configuration
-├── opencode.json        # OpenCode SDK configuration
-├── requirements.txt     # Python dependencies
-├── Dockerfile           # Docker configuration
-├── .env.example         # Example environment variables
-├── .gitignore          # Git ignore rules
-├── README.md           # This file
-├── data/               # Database and persistent data
-├── workspace/          # Generated project workspaces
-└── logs/               # Application logs
+Developer                          Tester
+    │                                 │
+    │  submit_implementation_status   │
+    │────────────────────────────────▶│
+    │                                 │
+    │         get_test_result         │
+    │◀────────────────────────────────│
+    │                                 │
+    │       submit_test_result        │
+    │◀────────────────────────────────│
 ```
 
-## 🔄 Workflow
+## License
 
-1. **Create Project**: Submit a project name and description via API
-2. **Ideation**: Ideator agent researches and generates detailed project concepts
-3. **Planning**: Planner agent creates implementation plan with tasks and milestones
-4. **Development**: Developer agent writes production-ready code
-5. **Testing**: Tester agent validates code quality and functionality
-6. **Upload**: Uploader agent deploys code to Gitea repository
-7. **Evangelism**: Evangelist agent promotes the project on X/Twitter
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🧪 Development
-
-### Running Tests
-
-```bash
-pytest tests/ -v
-```
-
-### Code Formatting
-
-```bash
-black .
-isort .
-```
-
-### Type Checking
-
-```bash
-mypy main.py config.py
-```
-
-## 📊 Monitoring
-
-- **Health Check**: `GET /health` returns system status
-- **Statistics**: `GET /stats` returns project counts and agent status
-- **Logs**: Structured JSON logging with timestamps
-
-## 🔒 Security
-
-- Non-root Docker user
-- Environment-based secrets management
-- CORS middleware configured
-- No sensitive data in logs
-- API docs disabled in production
-
-## 📝 License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## 📧 Support
-
-For issues and questions, please open an issue on our Gitea repository.
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 
-Built with ❤️ using FastAPI, MiniMax M2.1, and OpenCode SDK
+**Built with [FastAPI](https://fastapi.tiangolo.com/), [OpenCode SDK](https://opencode.ai/), and [MCP](https://modelcontextprotocol.io/)**
