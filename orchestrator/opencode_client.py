@@ -460,6 +460,10 @@ class OpenCodeClient:
             """Background task to process SSE events."""
             nonlocal events_stream
             
+            # Track sent content per part ID to avoid duplicates
+            # When the same part is updated multiple times, only send new content
+            part_content_sent: Dict[str, int] = {}
+            
             try:
                 # Subscribe to SSE event stream using event.list()
                 events_stream = await client.event.list()
@@ -501,15 +505,36 @@ class OpenCodeClient:
                     
                     # Handle message.part.updated - real-time delta text
                     if event_type == 'message.part.updated':
+                        # Extract part ID for deduplication
+                        part = _safe_get(properties, 'part')
+                        part_id = _safe_get(part, 'id') if part else None
+                        
                         text = self._extract_text_from_event(event, event_type)
                         if text:
-                            chunk_count += 1
-                            accumulated_content.append(text)
-                            logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(text)} chars)")
-                            try:
-                                await output_callback(text)
-                            except Exception as e:
-                                logger.warning(f"Session {session_id}: Output callback error: {e}")
+                            # Delta-style transmission: only send new content
+                            if part_id:
+                                already_sent = part_content_sent.get(part_id, 0)
+                                if len(text) > already_sent:
+                                    new_text = text[already_sent:]
+                                    part_content_sent[part_id] = len(text)
+                                    
+                                    chunk_count += 1
+                                    accumulated_content.append(new_text)
+                                    logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(new_text)} new chars, part {part_id[:20] if part_id else 'N/A'})")
+                                    try:
+                                        await output_callback(new_text)
+                                    except Exception as e:
+                                        logger.warning(f"Session {session_id}: Output callback error: {e}")
+                                # else: no new content, skip duplicate
+                            else:
+                                # No part ID, send full text (fallback)
+                                chunk_count += 1
+                                accumulated_content.append(text)
+                                logger.info(f"Session {session_id}: Stream chunk {chunk_count} ({len(text)} chars, no part ID)")
+                                try:
+                                    await output_callback(text)
+                                except Exception as e:
+                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
                         continue
                     
                     # Handle message.updated - contains full message content
