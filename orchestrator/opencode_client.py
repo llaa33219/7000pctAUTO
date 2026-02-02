@@ -504,6 +504,36 @@ class OpenCodeClient:
                     # Get event type
                     event_type = _safe_get(event, 'type', '')
                     
+                    # Handle message.updated FIRST to detect assistant message ID
+                    # This must be processed before message.part.updated so we know which parts to filter
+                    if event_type == 'message.updated':
+                        # Extract message info to detect assistant message
+                        info = _safe_get(properties, 'info')
+                        if info:
+                            msg_role = _safe_get(info, 'role')
+                            msg_id = _safe_get(info, 'id')
+                            
+                            # If this is the assistant message, save its ID for filtering part events
+                            if msg_role == 'assistant' and msg_id and assistant_message_id[0] is None:
+                                assistant_message_id[0] = msg_id
+                                logger.info(f"Session {session_id}: Detected assistant message ID from event: {msg_id}")
+                        
+                        # Also extract text content (existing logic)
+                        full_text = self._extract_text_from_event(event, event_type)
+                        if full_text:
+                            # Delta-style: only send new content
+                            if len(full_text) > last_sent_content_length[0]:
+                                new_text = full_text[last_sent_content_length[0]:]
+                                last_sent_content_length[0] = len(full_text)
+                                chunk_count += 1
+                                accumulated_content.append(new_text)
+                                logger.info(f"Session {session_id}: message.updated delta chunk {chunk_count} ({len(new_text)} new chars, total {len(full_text)})")
+                                try:
+                                    await output_callback(new_text)
+                                except Exception as e:
+                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
+                        continue
+                    
                     # Handle message.part.updated - real-time delta text
                     if event_type == 'message.part.updated':
                         # Extract part and message ID for deduplication and filtering
@@ -512,8 +542,13 @@ class OpenCodeClient:
                         part_message_id = _safe_get(part, 'message_id') if part else None
                         
                         # Only process events for the assistant message (skip user message events)
-                        # If assistant_message_id is not yet set, we can't filter yet - skip until we know the ID
-                        if assistant_message_id[0] is not None and part_message_id and part_message_id != assistant_message_id[0]:
+                        # If assistant_message_id is not yet set, skip ALL events until we know the ID
+                        if assistant_message_id[0] is None:
+                            logger.debug(f"Session {session_id}: Skipping event - assistant message ID not yet set")
+                            continue
+                        
+                        # Skip events that don't match our assistant message
+                        if part_message_id and part_message_id != assistant_message_id[0]:
                             logger.debug(f"Session {session_id}: Skipping event for non-assistant message {part_message_id[:20] if part_message_id else 'N/A'}")
                             continue
                         
@@ -545,23 +580,8 @@ class OpenCodeClient:
                                     logger.warning(f"Session {session_id}: Output callback error: {e}")
                         continue
                     
-                    # Handle message.updated - contains full message content
-                    # Use delta-style streaming: only send new content since last update
-                    if event_type == 'message.updated':
-                        full_text = self._extract_text_from_event(event, event_type)
-                        if full_text:
-                            # Delta-style: only send new content
-                            if len(full_text) > last_sent_content_length[0]:
-                                new_text = full_text[last_sent_content_length[0]:]
-                                last_sent_content_length[0] = len(full_text)
-                                chunk_count += 1
-                                accumulated_content.append(new_text)
-                                logger.info(f"Session {session_id}: message.updated delta chunk {chunk_count} ({len(new_text)} new chars, total {len(full_text)})")
-                                try:
-                                    await output_callback(new_text)
-                                except Exception as e:
-                                    logger.warning(f"Session {session_id}: Output callback error: {e}")
-                        continue
+                    # NOTE: message.updated is now handled BEFORE message.part.updated above
+                    # to detect assistant message ID before filtering part events
                     
                     # Handle session.updated - may contain message content
                     if event_type == 'session.updated':
